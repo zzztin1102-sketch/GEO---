@@ -1,0 +1,43 @@
+# 敏感文件
+.env
+.env.*
+!.env.example
+
+# 数据库
+*.db
+*.db-journal
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# 虚拟环境
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 日志
+*.log
+logs/
+
+# WorkBuddy 本地数据
+.workbuddy/
+
+# 临时文件
+test_*.py
+/tmp/

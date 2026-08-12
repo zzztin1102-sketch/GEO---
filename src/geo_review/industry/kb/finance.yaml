@@ -1,0 +1,254 @@
+industry: finance
+name: 金融投资
+version: "1.0.0"
+description: 金融投资行业 GEO 生文审核知识库，涵盖证券、期货、基金、保险等子领域
+
+characteristics:
+  - 高度监管，受证监会、银保监会、央行等多部门监管
+  - 涉及投资者资金安全，风险披露要求严格
+  - 专业术语多，普通投资者理解门槛高
+  - 市场波动大，时效性强
+  - 合规红线明确，违规成本高
+
+target_audiences:
+  - 个人投资者
+  - 机构投资者
+  - 理财客户
+  - 金融从业者
+
+sensitive_topics:
+  - 投资收益承诺（保本、保收益）
+  - 市场走势预测（暗示确定性）
+  - 未经核实的内幕信息
+  - 煽动性投资号召
+  - 歧视性客户筛选
+  - 非法集资相关内容
+
+terms:
+  - term: 适当性匹配
+    definition: 根据投资者风险承受能力推荐匹配的金融产品
+    category: 合规
+    risk_level: critical
+    notes: 必须体现，不得向低风险承受能力者推荐高风险产品
+
+  - term: 过往业绩
+    definition: 产品历史收益表现，不等于未来收益承诺
+    category: 披露
+    risk_level: high
+    notes: 提及过往业绩时必须同步提示"过往业绩不代表未来表现"
+
+  - term: 风险等级
+    definition: 产品风险程度的分类标识（R1-R5）
+    category: 产品
+    risk_level: medium
+
+  - term: 合格投资者
+    definition: 符合资产或收入门槛要求、具备风险识别能力的投资者
+    category: 合规
+    risk_level: critical
+    notes: 私募产品只能面向合格投资者推介
+
+  - term: 资管新规
+    definition: 《关于规范金融机构资产管理业务的指导意见》，打破刚性兑付
+    category: 法规
+    risk_level: high
+
+  - term: 刚性兑付
+    definition: 金融机构承诺保本保收益的行为，已被明令禁止
+    category: 合规
+    risk_level: critical
+    notes: 绝对禁止承诺刚性兑付
+
+compliance_rules:
+  - rule_id: FIN-001
+    name: 禁止保本保收益承诺
+    description: 不得承诺保本、保收益或承担损失
+    regulation_source: 《证券法》《资管新规》
+    severity: critical
+    category: 收益承诺
+    keywords:
+      - 保本
+      - 保收益
+      - 稳赚
+      - 零风险
+      - 无风险
+      - 绝对安全
+      - 稳赢
+      - 包赚
+    examples:
+      - "本产品保本保息"
+      - "稳赚不赔的投资机会"
+      - "零风险高回报"
+    counter_examples:
+      - "产品过往年化收益X%，但过往业绩不代表未来表现"
+      - "投资有风险，入市需谨慎"
+
+  - rule_id: FIN-002
+    name: 禁止暗示确定性收益
+    description: 不得使用暗示确定性收益的表述
+    regulation_source: 《广告法》第25条
+    severity: major
+    category: 收益承诺
+    keywords:
+      - 肯定涨
+      - 必然赚
+      - 一定盈利
+      - 稳赚
+      - 躺着赚
+      - 闭眼入
+    examples:
+      - "这只股票肯定涨"
+      - "闭眼入，必然赚"
+
+  - rule_id: FIN-003
+    name: 必须提示投资风险
+    description: 涉及投资建议时必须包含风险提示
+    regulation_source: 《证券期货投资者适当性管理办法》
+    severity: critical
+    category: 信息披露
+    keywords:
+      - 推荐
+      - 建议买入
+      - 看好
+      - 强烈推荐
+    examples:
+      - 只推荐股票但不提示风险
+    counter_examples:
+      - "以上观点仅供参考，不构成投资建议，投资有风险"
+
+  - rule_id: FIN-004
+    name: 禁止暗示内幕信息
+    description: 不得暗示拥有或传播内幕信息
+    regulation_source: 《证券法》第53条
+    severity: critical
+    category: 信息合规
+    keywords:
+      - 内部消息
+      - 内幕
+      - 独家消息
+      - 小道消息
+      - 知情人士透露
+    examples:
+      - "据内部人士透露，公司即将..."
+      - "独家消息，主力已经建仓"
+
+  - rule_id: FIN-005
+    name: 禁止煽动性投资号召
+    description: 不得使用煽动性语言促使投资者立即决策
+    regulation_source: 《广告法》
+    severity: major
+    category: 营销合规
+    keywords:
+      - 错过等一年
+      - 最后机会
+      - 限时抢购
+      - 马上行动
+      - 机不可失
+      - 立即开户
+    examples:
+      - "错过这次机会再等一年"
+      - "最后3个名额，马上行动"
+
+risk_patterns:
+  - pattern_id: FIN-R001
+    name: 收益与风险不匹配
+    description: 宣传高收益但淡化或回避风险
+    risk_type: 误导宣传
+    severity: major
+    indicators:
+      - 高收益.*低风险
+      - 高回报.*无风险
+      - 收益.*安全
+    context_clues:
+      - 强调收益数字
+      - 弱化风险描述
+      - 使用"安全""稳健"等词搭配高收益
+    mitigation: 收益与风险必须对等呈现，不得割裂宣传
+
+  - pattern_id: FIN-R002
+    name: 不当比较
+    description: 与银行存款、国债等低风险产品进行不当收益比较
+    risk_type: 不当对比
+    severity: minor
+    indicators:
+      - 比银行高
+      - 远超存款
+      - 秒杀国债
+    mitigation: 如需比较，必须同时比较风险等级和流动性
+
+  - pattern_id: FIN-R003
+    name: 专业术语滥用
+    description: 使用专业术语但不解释，可能导致投资者误解
+    risk_type: 信息披露不足
+    severity: info
+    indicators:
+      - 大量使用未解释的英文缩写
+      - 复杂金融术语无注释
+    mitigation: 首次出现的专业术语应附带简要解释
+
+audit_focus:
+  - dimension: 合规性
+    description: 是否符合金融监管法规要求
+    weight: 10.0
+    check_points:
+      - 是否包含必要的风险提示
+      - 是否涉及违规承诺
+      - 是否超范围宣传（如私募产品公开宣传）
+    llm_prompt_hint: 重点检查是否存在违反广告法、证券法、资管新规等法规的表述
+
+  - dimension: 适当性
+    description: 产品风险与目标受众是否匹配
+    weight: 9.0
+    check_points:
+      - 是否明确产品风险等级
+      - 是否面向合适的投资者群体
+      - 是否考虑投资者风险承受能力
+    llm_prompt_hint: 判断文案是否可能误导非合格投资者购买高风险产品
+
+  - dimension: 信息披露完整性
+    description: 关键信息是否充分披露
+    weight: 8.0
+    check_points:
+      - 过往业绩是否附带免责声明
+      - 费用结构是否清晰
+      - 投资范围是否明确
+    llm_prompt_hint: 检查是否存在选择性披露、报喜不报忧的情况
+
+  - dimension: 语义误导风险
+    description: 表述是否存在隐含误导
+    weight: 8.0
+    check_points:
+      - 是否存在暗示确定性的措辞
+      - 是否存在淡化风险的表述
+      - 是否存在夸大优势的对比
+    llm_prompt_hint: 从语义层面分析表述是否可能在潜意识中误导投资者
+
+  - dimension: 专业性
+    description: 专业内容是否准确、术语使用是否规范
+    weight: 6.0
+    check_points:
+      - 金融概念是否准确
+      - 数据引用是否可靠
+      - 专业术语使用是否恰当
+    llm_prompt_hint: 判断专业内容的准确性，识别概念混淆或错误
+
+review_guidelines:
+  - 金融文案必须将风险提示放在显著位置，不得隐藏或弱化
+  - 提及过往业绩时必须同步提示"过往业绩不代表未来表现"
+  - 不得使用"最安全""最佳""第一"等绝对化用语形容产品
+  - 不得暗示或承诺确定性收益
+  - 私募产品不得公开宣传，不得向非合格投资者推介
+  - 涉及具体产品的，必须标明产品名称、代码、风险等级
+  - 不得使用恐慌营销或FOMO（错失恐惧）策略
+  - 对比不同产品时，必须在同一维度（风险、流动性、期限）进行比较
+  - 不得使用"靠前""名列前茅""位居前列"等擦边球用词规避绝对化用语审查
+  - 不得使用"全链条""全流程""全覆盖""全方位"等无边界绝对化表述
+
+system_prompt_addition: |
+  你正在审核金融投资领域的内容。金融行业具有高度监管特性，涉及投资者资金安全，请务必：
+  1. 对收益承诺类表述保持最高敏感度
+  2. 关注风险提示是否充分、显著
+  3. 识别可能误导非专业投资者的隐含语义
+  4. 注意适当性匹配要求（产品风险与投资者承受能力）
+  5. 判断专业术语使用是否准确、是否存在概念混淆
+  6. 重点识别擦边球绝对化用语（靠前/名列前茅/位居前列等规避"第一"的变体）和扩展绝对化用语（全链条/全流程/全覆盖等无边界表述）

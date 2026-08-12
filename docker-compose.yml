@@ -1,0 +1,70 @@
+version: "3.8"
+
+services:
+  # ================================================================
+  # PostgreSQL 数据库（生产环境）
+  # ================================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: geo-review-db
+    restart: always
+    environment:
+      POSTGRES_DB: geo_review
+      POSTGRES_USER: ${POSTGRES_USER:-geo_review}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-geo_review_secret}
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-geo_review}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ================================================================
+  # GEO 生文审核应用
+  # ================================================================
+  geo-review:
+    build: .
+    container_name: geo-review
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      # 持久化数据（日志等）
+      - review-data:/app/data
+      # 挂载配置文件（方便外部修改）
+      - ./config.yaml:/app/config.yaml:ro
+      # 挂载规则模板
+      - ./rule_templates:/app/rule_templates:ro
+      # 挂载 Prompt 模板
+      - ./prompt_templates:/app/prompt_templates:ro
+    environment:
+      - TZ=Asia/Shanghai
+      - LLM_API_KEY=${LLM_API_KEY}
+      - AUTH_SECRET_KEY=${AUTH_SECRET_KEY}
+      - AUTH_ADMIN_PASSWORD=${AUTH_ADMIN_PASSWORD}
+      # 数据库配置：生产环境使用 PostgreSQL
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-geo_review}:${POSTGRES_PASSWORD:-geo_review_secret}@postgres:5432/geo_review
+      # 运行环境标记（影响缓存策略等）
+      - APP_ENV=production
+    env_file:
+      - .env
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  review-data:
+  pg-data:

@@ -1,0 +1,65 @@
+llm:
+  provider: openai
+  base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+  api_key: ${LLM_API_KEY}
+  model: qwen3.7-plus
+  temperature: 0.1
+  max_tokens: 4000
+  timeout: 150
+crawler:
+  enabled: true
+  use_playwright: true
+  max_pages: 3
+  timeout: 15
+  cache_ttl: 3600
+rule_engine:
+  default_template: finance
+  enable_length_check: true
+  enable_forbidden_keywords: true
+  enable_required_keywords: true
+  enable_competitor_check: true
+  enable_claim_check: true
+  min_content_length: 100
+  max_content_length: 50000
+database:
+  url: ${DATABASE_URL:sqlite+aiosqlite:///./review_history.db}
+  echo: false
+batch:
+  max_items: 100
+  max_concurrent: 3
+  task_expiry_hours: 24
+api:
+  host: 0.0.0.0
+  port: 8000
+  workers: 1
+  cors_origins:
+  - http://localhost:3000
+  - http://localhost:8000
+  - http://127.0.0.1:3000
+  - http://127.0.0.1:8000
+  docs_url: /docs
+  redoc_url: /redoc
+log:
+  level: INFO
+  format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+  file: null
+auth:
+  enabled: true
+  secret_key: ${AUTH_SECRET_KEY}
+  token_expire_minutes: 1440
+  default_admin_username: admin
+  default_admin_password: ${AUTH_ADMIN_PASSWORD}
+  allow_registration: false
+fact_check:
+  enabled: true
+  max_claims: 5
+  max_search_results: 5
+  search_timeout: 15
+  search_api_url: null
+  search_api_key: null
+rate_limit:
+  enabled: true
+  review_limit: 10/minute
+  batch_limit: 3/minute
+  auth_limit: 20/minute
+  default_limit: 60/minute
