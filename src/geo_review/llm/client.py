@@ -155,7 +155,14 @@ class LLMClient:
         retry_backoff: float = 2.0,
         retry_jitter: bool = True,
     ) -> Dict[str, Any]:
-        """发送聊天请求，返回标准化结果（含指数退避重试 + fallback 降级）.
+        """发送聊天请求，返回标准化结果（含并发控制 + 熔断器 + 指数退避重试 + fallback 降级）.
+
+        并发控制流程：
+            1. 检查熔断器状态 — OPEN 时快速失败
+            2. 获取全局 LLM 并发信号量
+            3. 执行 API 调用
+            4. 成功 → 熔断器 record_success
+            5. 失败 → 熔断器 record_failure
 
         Args:
             messages: 消息列表（OpenAI 格式）
@@ -176,13 +183,42 @@ class LLMClient:
                 "fallback_used": bool,
             }
         """
-        # ✅ 新增：缓存检查
+        # ✅ 缓存检查（缓存命中时不消耗并发槽位）
         if self._cache is not None:
             cached = self._cache.get(messages)
             if cached is not None:
                 self._stats["cache_hits"] += 1
                 return cached
 
+        # ✅ 并发控制 + 熔断器检查
+        from geo_review.utils.concurrency import ConcurrencyManager
+        cm = ConcurrencyManager.get_instance()
+
+        with cm.llm_context(timeout=120.0) as allowed:
+            if not allowed:
+                # 熔断器开启 或 并发槽位获取超时
+                self._stats["failed_calls"] += 1
+                raise RuntimeError(
+                    "LLM API 当前不可用（熔断器开启或并发已满），请稍后重试"
+                )
+
+            return self._do_chat(
+                messages, response_format, max_retries,
+                retry_delay, retry_backoff, retry_jitter,
+                cm,
+            )
+
+    def _do_chat(
+        self,
+        messages: list,
+        response_format: Optional[str],
+        max_retries: int,
+        retry_delay: float,
+        retry_backoff: float,
+        retry_jitter: bool,
+        cm=None,
+    ) -> Dict[str, Any]:
+        """实际执行 LLM 调用（含重试 + fallback + 熔断器反馈）."""
         self._stats["total_calls"] += 1
         start_time = time.time()
         last_error = None
@@ -205,6 +241,10 @@ class LLMClient:
                 # ✅ 新增：写入缓存
                 if self._cache is not None:
                     self._cache.set(messages, result)
+
+                # ✅ 熔断器：记录成功
+                if cm:
+                    cm.record_llm_success()
 
                 return result
 
@@ -260,6 +300,9 @@ class LLMClient:
                 pass
 
         self._stats["failed_calls"] += 1
+        # ✅ 熔断器：记录失败
+        if cm:
+            cm.record_llm_failure()
         raise RuntimeError(
             f"LLM 调用失败（已重试 {retries} 次，已尝试降级）: {last_error}"
         ) from last_error

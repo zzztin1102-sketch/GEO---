@@ -24,10 +24,13 @@ from fastapi.staticfiles import StaticFiles
 
 from geo_review.agent import BatchReviewService, ReviewAgent
 from geo_review.auth import AuthService, SecurityUtils
+from geo_review.cache.resource_cache import CompanyResourceCache
 from geo_review.config import AppConfig, load_config
+from geo_review.crawlers import WebsiteCrawler
 from geo_review.history import HistoryService, init_database
 from geo_review.industry.loader import IndustryLoader
 from geo_review.llm.models import LLMProviderConfig
+from geo_review.utils.concurrency import ConcurrencyManager, ConcurrencyConfig as CC
 from geo_review.monitoring import MetricsMiddleware, MetricsCollector
 from geo_review.rules.loader import RuleLoader
 from geo_review.utils.security import (
@@ -42,6 +45,7 @@ from geo_review.workflow import WorkflowService
 from geo_review.api.routers import (
     auth as auth_router,
     batch as batch_router,
+    cache as cache_router,
     history as history_router,
     review as review_router,
     rules as rules_router,
@@ -115,16 +119,11 @@ GEO 生文审核 Agent 的 RESTful API 接口。
         allow_headers=["*"],
     )
 
-    # 从配置创建 LLM 配置
-    llm_config = LLMProviderConfig(
-        provider=config.llm.provider,
-        base_url=config.llm.base_url,
-        api_key=config.llm.api_key,
-        model=config.llm.model,
-        temperature=config.llm.temperature,
-        max_tokens=config.llm.max_tokens,
-        timeout=config.llm.timeout,
-    )
+    # 从配置创建 LLM 配置（完整传递所有字段，避免遗漏新增配置项）
+    llm_config = LLMProviderConfig(**config.llm.model_dump())
+
+    # ✅ 将爬虫配置注入到 WebsiteCrawler（让 max_pages / timeout / use_playwright / enabled 真正生效）
+    WebsiteCrawler.configure(config.crawler)
 
     # 加载默认规则集（支持动态更新）
     default_rule_set = RuleLoader.from_template(config.rule_engine.default_template)
@@ -140,7 +139,35 @@ GEO 生文审核 Agent 的 RESTful API 接口。
     app.state._industry_kbs = industry_kbs
     logger.info(f"已加载 {len(industry_kbs)} 个行业知识库: {list(industry_kbs.keys())}")
 
-    # 创建 Agent（传入共享规则集）
+    # ✅ 初始化全局并发管理器（信号量 + 熔断器）
+    cc = config.concurrency
+    ConcurrencyManager.configure(CC(
+        max_concurrent_reviews=cc.max_concurrent_reviews,
+        max_concurrent_llm_calls=cc.max_concurrent_llm_calls,
+        max_concurrent_crawls=cc.max_concurrent_crawls,
+        circuit_breaker_enabled=cc.circuit_breaker_enabled,
+        circuit_breaker_threshold=cc.circuit_breaker_threshold,
+        circuit_breaker_cooldown=cc.circuit_breaker_cooldown,
+    ))
+
+    # ✅ 初始化公司级资源缓存（持久化复用官网爬取和提报表解析结果）
+    cache_cfg = config.cache
+    resource_cache = CompanyResourceCache(
+        db_path=cache_cfg.db_path,
+        submission_ttl_hours=cache_cfg.submission_ttl_hours,
+        crawl_ttl_hours=cache_cfg.crawl_ttl_hours,
+        evidence_ttl_hours=cache_cfg.evidence_ttl_hours,
+        enabled=cache_cfg.enabled,
+    )
+    app.state._resource_cache = resource_cache
+    if cache_cfg.enabled:
+        logger.info(
+            f"资源缓存已启用: db={cache_cfg.db_path}, "
+            f"TTL(小时)=[爬取:{cache_cfg.crawl_ttl_hours}, 证据:{cache_cfg.evidence_ttl_hours}, "
+            f"提报表:{cache_cfg.submission_ttl_hours}]"
+        )
+
+    # 创建 Agent（传入共享规则集和资源缓存）
     agent = ReviewAgent(
         llm_config=llm_config,
         default_rule_set=default_rule_set,
@@ -148,6 +175,7 @@ GEO 生文审核 Agent 的 RESTful API 接口。
         fact_check_max_claims=config.fact_check.max_claims,
         fact_check_max_search_results=config.fact_check.max_search_results,
         fact_check_search_timeout=config.fact_check.search_timeout,
+        resource_cache=resource_cache if cache_cfg.enabled else None,
     )
     app.state._agent = agent
 
@@ -293,6 +321,7 @@ GEO 生文审核 Agent 的 RESTful API 接口。
     app.include_router(batch_router.router)
     app.include_router(history_router.router)
     app.include_router(workflow_router.router)
+    app.include_router(cache_router.router)
 
     # ================================================================
     # Web 前端静态文件

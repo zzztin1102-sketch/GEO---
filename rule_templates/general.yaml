@@ -1,0 +1,211 @@
+meta:
+  name: 通用内容审核规则模板
+  version: 1.0.0
+  industry: general
+  description: 适用于所有行业的通用广告合规审核规则（广告法基础条款）
+  author: GEO Review Team
+  created_at: 2026-08-12T00:00:00+08:00
+  priority: 100
+  tags: ["general", "advertising_law", "baseline"]
+
+rules:
+  # 广告法禁用词 — 绝对化用语
+  forbidden_claims:
+    - pattern: 国家级
+      is_regex: false
+      severity: critical
+      description: 广告法禁止使用"国家级"等表述
+      enabled: true
+      weight: 10
+      category: 广告法合规
+      tags: ["绝对化用语"]
+    - pattern: 最高级
+      is_regex: false
+      severity: critical
+      description: 广告法禁止使用"最高级"等表述
+      enabled: true
+      weight: 10
+      category: 广告法合规
+      tags: ["绝对化用语"]
+    - pattern: 第一品牌
+      is_regex: false
+      severity: critical
+      description: 广告法禁止使用"第一品牌"等绝对化表述
+      enabled: true
+      weight: 10
+      category: 广告法合规
+      tags: ["绝对化用语"]
+    - pattern: 唯一
+      is_regex: false
+      severity: major
+      description: '"唯一"属于绝对化用语，需有充分证据支撑'
+      enabled: true
+      weight: 30
+      category: 广告法合规
+      tags: ["绝对化用语"]
+    - pattern: 顶级
+      is_regex: false
+      severity: critical
+      description: 广告法禁止使用"顶级"等表述
+      enabled: true
+      weight: 10
+      category: 广告法合规
+      tags: ["绝对化用语"]
+    - pattern: 极品
+      is_regex: false
+      severity: critical
+      description: 广告法禁止使用"极品"等表述
+      enabled: true
+      weight: 10
+      category: 广告法合规
+      tags: ["绝对化用语"]
+    - pattern: 第一选择
+      is_regex: false
+      severity: major
+      description: '"第一选择"属于绝对化用语'
+      enabled: true
+      weight: 30
+      category: 广告法合规
+      tags: ["绝对化用语"]
+
+  # 夸大表述检测
+  exaggeration_patterns:
+    - pattern: '(全球|全国|世界|行业)\s*(第|第一)\s*(一|名|大)?'
+      severity: critical
+      description: 排名类绝对化表述，需有权威机构认证
+      enabled: true
+      weight: 10
+      category: 广告法合规
+    - pattern: '(最)(大|好|优|强|低|高|快|安全|先进|专业|权威|可靠)\s*的'
+      severity: critical
+      description: '"最+形容词"构成绝对化用语'
+      enabled: true
+      weight: 10
+      category: 广告法合规
+    - pattern: '(领先|一流|顶尖|卓越|极致|完美|无与伦比|举世无双|前所未有|无中生有)'
+      severity: major
+      description: 无依据的极端赞美性表述
+      enabled: true
+      weight: 30
+      category: 夸大宣传
+    - pattern: '\d+\s*%\s*(好评|满意|成功|通过)'
+      severity: major
+      description: 百分比数据需有可验证的统计来源
+      enabled: true
+      weight: 20
+      category: 数据合规
+    - pattern: '(百万|千万|亿级|海量)\s*(用户|客户|用户量)'
+      severity: minor
+      description: 用户量数据需有可验证来源
+      enabled: true
+      weight: 50
+      category: 数据合规
+
+  # 用词规范性检查
+  word_regularity:
+    # 擦边球绝对化用语
+    euphemism_absolute:
+      - pattern: 靠前
+        severity: major
+        description: 以"靠前"暗示排名优势，规避"第一"等绝对化用语
+        standard_form: 第一/领先
+        enabled: true
+        weight: 40
+        category: 用词规范
+      - pattern: 名列前茅
+        severity: major
+        description: '"名列前茅"暗示排名领先，属于规避绝对化用语的擦边球'
+        standard_form: 第一/领先
+        enabled: true
+        weight: 40
+        category: 用词规范
+      - pattern: 位居前列
+        severity: major
+        description: '"位居前列"暗示排名靠前，规避绝对化用语但保留排他性暗示'
+        standard_form: 第一/领先
+        enabled: true
+        weight: 40
+        category: 用词规范
+      - pattern: 遥遥领先
+        severity: major
+        description: '"遥遥领先"程度副词"遥遥"构成绝对化暗示，无法验证且具有排他性'
+        standard_form: 领先
+        enabled: true
+        weight: 40
+        category: 用词规范
+      - pattern: 独占鳌头
+        severity: major
+        description: '"独占鳌头"等同于"第一"的文学化表达，属于绝对化用语的变体'
+        standard_form: 第一
+        enabled: true
+        weight: 40
+        category: 用词规范
+      - pattern: 首屈一指
+        severity: major
+        description: '"首屈一指"等同于"第一"的成语化表达，属于绝对化用语的变体'
+        standard_form: 第一
+        enabled: true
+        weight: 40
+        category: 用词规范
+    # 扩展绝对化用语
+    extended_absolute:
+      - pattern: 全链条
+        severity: major
+        description: '"全链条"是无边界的绝对化表述，无法验证覆盖范围'
+        replacement: 完整链条/主要环节
+        enabled: true
+        weight: 40
+        category: 用词规范
+      - pattern: 全流程
+        severity: major
+        description: '"全流程"是无边界的绝对化表述，无法验证是否覆盖所有流程环节'
+        replacement: 主要流程/关键流程
+        enabled: true
+        weight: 40
+        category: 用词规范
+      - pattern: 全覆盖
+        severity: major
+        description: '"全覆盖"是无边界的绝对化表述，无法验证覆盖范围是否完整'
+        replacement: 广泛覆盖/主要覆盖
+        enabled: true
+        weight: 40
+        category: 用词规范
+      - pattern: 全方位
+        severity: major
+        description: '"全方位"是无边界的绝对化表述，无法验证是否真正覆盖所有维度'
+        replacement: 多维度/多个方面
+        enabled: true
+        weight: 40
+        category: 用词规范
+      - pattern: 无死角
+        severity: major
+        description: '"无死角"是无边界的绝对化表述，无法验证是否真正无遗漏'
+        replacement: 主要场景/关键场景
+        enabled: true
+        weight: 40
+        category: 用词规范
+
+  # 拉踩检测
+  competitor_disparagement:
+    keywords:
+      - 不如
+      - 较差
+      - 不靠谱
+      - 远不如
+      - 差距大
+    patterns: []
+    severity: major
+    require_competitor_match: true
+    enabled: true
+    weight: 50
+    category: 竞品合规
+
+  # 事实核查
+  fact_verification:
+    number_pattern: '\d+(\.\d+)?\s*(%|％|万|亿|个|家|人|款|项|篇|份)'
+    require_allowed_match: true
+    require_website_match: false
+    severity: major
+    enabled: true
+    weight: 50
+    category: 数据合规

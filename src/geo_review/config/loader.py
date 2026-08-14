@@ -11,7 +11,7 @@ from typing import Any, Optional
 
 import yaml
 
-from geo_review.config.models import AppConfig, LLMConfig, AuthConfig
+from geo_review.config.models import AppConfig
 
 # 尝试加载 .env 文件（如果 python-dotenv 可用）
 try:
@@ -45,7 +45,7 @@ _BOOL_KEYS = {
 }
 _INT_KEYS = {
     "llm.max_tokens", "llm.timeout", "llm.cache_ttl", "llm.max_issues",
-    "crawler.max_pages", "crawler.timeout", "crawler.cache_ttl",
+    "crawler.max_pages", "crawler.timeout",
     "rule_engine.min_content_length", "rule_engine.max_content_length",
     "batch.max_items", "batch.max_concurrent", "batch.task_expiry_hours",
     "api.port", "api.workers",
@@ -248,23 +248,3 @@ def _apply_security_defaults(config: AppConfig):
             logging.getLogger(__name__).warning(
                 f"⚠️ AUTH_ADMIN_PASSWORD 未设置！已生成临时密码: {temp_pass}"
             )
-
-
-def save_config(config: AppConfig, path: str):
-    """保存配置到 YAML 文件.
-
-    ✅ 优化：保存时不写入敏感信息（api_key、secret_key、password）
-    """
-    data = config.model_dump()
-
-    # 安全：清除敏感字段（保存到文件时不包含）
-    if "llm" in data and "api_key" in data["llm"]:
-        data["llm"]["api_key"] = "${LLM_API_KEY}"
-    if "auth" in data:
-        if "secret_key" in data["auth"]:
-            data["auth"]["secret_key"] = "${AUTH_SECRET_KEY}"
-        if "default_admin_password" in data["auth"]:
-            data["auth"]["default_admin_password"] = "${AUTH_ADMIN_PASSWORD}"
-
-    with open(path, "w", encoding="utf-8") as f:
-        yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)

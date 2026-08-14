@@ -129,10 +129,10 @@ def check_secret_key_strength(secret_key: str) -> Tuple[bool, List[str]]:
 def is_production_env() -> bool:
     """检测是否为生产环境.
 
-    通过检查环境变量判断.
+    通过检查环境变量判断（支持 ENV / NODE_ENV / APP_ENV）.
     """
     import os
-    env = os.getenv("ENV", os.getenv("NODE_ENV", "")).lower()
+    env = os.getenv("ENV", os.getenv("NODE_ENV", os.getenv("APP_ENV", ""))).lower()
     return env in ("production", "prod", "staging")
 
 

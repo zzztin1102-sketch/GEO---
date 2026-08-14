@@ -11,7 +11,6 @@ crawler:
   use_playwright: true
   max_pages: 3
   timeout: 15
-  cache_ttl: 3600
 rule_engine:
   default_template: finance
   enable_length_check: true
@@ -63,3 +62,16 @@ rate_limit:
   batch_limit: 3/minute
   auth_limit: 20/minute
   default_limit: 60/minute
+concurrency:
+  max_concurrent_reviews: 5
+  max_concurrent_llm_calls: 5
+  max_concurrent_crawls: 2
+  circuit_breaker_enabled: true
+  circuit_breaker_threshold: 5
+  circuit_breaker_cooldown: 60.0
+cache:
+  enabled: true
+  db_path: resource_cache.db
+  submission_ttl_hours: 168
+  crawl_ttl_hours: 24
+  evidence_ttl_hours: 24

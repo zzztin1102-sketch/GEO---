@@ -31,11 +31,10 @@ echo [1/3] 检查依赖...
 python -c "import fastapi, uvicorn, pydantic, sqlalchemy, yaml, requests" >nul 2>&1
 if errorlevel 1 (
     echo [安装] 缺少依赖，正在安装...
-    pip install fastapi uvicorn pydantic sqlalchemy aiosqlite pyyaml requests python-multipart bcrypt python-jose openai
+    pip install -r requirements.txt
     if errorlevel 1 (
         echo [错误] 依赖安装失败！
-        echo        请手动运行:
-        echo        pip install fastapi uvicorn pydantic sqlalchemy aiosqlite pyyaml requests python-multipart bcrypt python-jose openai
+        echo        请手动运行: pip install -r requirements.txt
         pause
         exit /b 1
     )
@@ -80,6 +79,9 @@ echo ============================================
 echo.
 echo 启动中，请稍候...
 echo.
+
+REM 延迟 3 秒后自动打开浏览器
+start "" cmd /c "timeout /t 3 /nobreak >nul & start http://127.0.0.1:8000"
 
 python run.py
 

@@ -2,7 +2,7 @@
 
 from geo_review.llm.client import LLMClient
 from geo_review.llm.models import LLMProviderConfig, LLMReviewResult, LLMIssue
-from geo_review.llm.reviewer import LLMReviewer, ReviewResultMerger
+from geo_review.llm.reviewer import LLMReviewer
 from geo_review.llm.prompts import build_review_messages
 
 __all__ = [
@@ -11,6 +11,5 @@ __all__ = [
     "LLMReviewResult",
     "LLMIssue",
     "LLMReviewer",
-    "ReviewResultMerger",
     "build_review_messages",
 ]

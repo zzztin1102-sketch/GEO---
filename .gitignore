@@ -16,6 +16,11 @@ dist/
 build/
 *.egg
 
+# 测试缓存
+.pytest_cache/
+.coverage
+htmlcov/
+
 # 虚拟环境
 venv/
 .venv/
@@ -39,5 +44,4 @@ logs/
 .workbuddy/
 
 # 临时文件
-test_*.py
 /tmp/

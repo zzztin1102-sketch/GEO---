@@ -57,6 +57,8 @@ services:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-geo_review}:${POSTGRES_PASSWORD:-geo_review_secret}@postgres:5432/geo_review
       # 运行环境标记（影响缓存策略等）
       - APP_ENV=production
+      # ✅ Playwright 浏览器安装路径（与 Dockerfile 中 ENV PLAYWRIGHT_BROWSERS_PATH 一致）
+      - PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
     env_file:
       - .env
     logging:

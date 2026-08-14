@@ -1,7 +1,6 @@
 """官网爬虫 — 支持静态/动态页面爬取，全局缓存复用."""
 
-import hashlib
-import json
+import logging
 import re
 import threading
 import time
@@ -9,7 +8,10 @@ from geo_review.utils.time import now as beijing_now
 from typing import Any, Dict, List, Optional, Set
 from urllib.parse import urljoin, urlparse
 
+from geo_review.config.models import CrawlerConfig
 from geo_review.models import CrawledDomain, CrawledPage
+
+logger = logging.getLogger(__name__)
 
 
 # 全局缓存：{domain: CrawledDomain}
@@ -39,12 +41,6 @@ def _normalize_url(url: str) -> str:
     return normalized.rstrip("/")
 
 
-def _url_to_cache_key(url: str) -> str:
-    """将 URL 转换为缓存键（MD5）."""
-    normalized = _normalize_url(url)
-    return hashlib.md5(normalized.encode()).hexdigest()
-
-
 class WebsiteCrawler:
     """官网爬虫 — 统一入口，支持全局缓存复用.
 
@@ -53,10 +49,14 @@ class WebsiteCrawler:
         - 双引擎：静态页面用 requests，动态页面用 Playwright
         - 自动降级：动态爬取失败时降级为静态爬取
         - 内容清洗：去除脚本/样式/广告等噪声
+        - 配置驱动：通过 configure() 注入 CrawlerConfig，未注入时使用内置默认值
 
     使用方式:
-        # 单域名爬取
-        result = WebsiteCrawler.crawl("https://example.com", max_pages=10)
+        # 启动时一次性注入配置
+        WebsiteCrawler.configure(config.crawler)
+
+        # 单域名爬取（使用配置的 max_pages、timeout、use_playwright）
+        result = WebsiteCrawler.crawl("https://example.com")
 
         # 多域名批量爬取
         results = WebsiteCrawler.crawl_multiple([
@@ -68,6 +68,22 @@ class WebsiteCrawler:
         WebsiteCrawler.clear_cache()
     """
 
+    # 类级配置（启动时通过 configure() 注入；未注入时使用内置默认 CrawlerConfig）
+    _config: CrawlerConfig = CrawlerConfig()
+
+    @classmethod
+    def configure(cls, config: CrawlerConfig) -> None:
+        """注入爬虫配置（建议在应用启动时调用一次）.
+
+        未调用时使用 CrawlerConfig() 的默认值（max_pages=5, timeout=30, use_playwright=True）。
+        """
+        cls._config = config
+
+    @classmethod
+    def _get_config(cls) -> CrawlerConfig:
+        """获取当前生效的爬虫配置（懒加载保护，避免 import 时序问题）."""
+        return cls._config
+
     # ------------------------------------------------------------------
     # 公共入口
     # ------------------------------------------------------------------
@@ -76,9 +92,9 @@ class WebsiteCrawler:
         cls,
         start_url: str,
         *,
-        max_pages: int = 10,
-        timeout: int = 30,
-        use_dynamic: bool = True,
+        max_pages: Optional[int] = None,
+        timeout: Optional[int] = None,
+        use_dynamic: Optional[bool] = None,
         allowed_patterns: Optional[List[str]] = None,
         excluded_patterns: Optional[List[str]] = None,
         user_agent: Optional[str] = None,
@@ -88,9 +104,9 @@ class WebsiteCrawler:
 
         Args:
             start_url: 起始 URL（如首页）
-            max_pages: 最大爬取页面数（默认 10）
-            timeout: 单页超时秒数（默认 30）
-            use_dynamic: 是否使用动态爬取（Playwright）
+            max_pages: 最大爬取页面数（None 时使用 CrawlerConfig.max_pages）
+            timeout: 单页超时秒数（None 时使用 CrawlerConfig.timeout）
+            use_dynamic: 是否使用动态爬取（None 时使用 CrawlerConfig.use_playwright）
             allowed_patterns: 允许的 URL 正则列表（如 ["product", "about"]）
             excluded_patterns: 排除的 URL 正则列表（如 ["login", "admin"]）
             user_agent: 自定义 User-Agent
@@ -98,7 +114,21 @@ class WebsiteCrawler:
 
         Returns:
             CrawledDomain 对象（包含页面列表、统计信息等）
+
+        Raises:
+            RuntimeError: 当 CrawlerConfig.enabled=False 时拒绝爬取
         """
+        cfg = cls._get_config()
+        if not cfg.enabled:
+            raise RuntimeError(
+                "官网爬取已禁用（crawler.enabled=false）。如需启用请修改配置或显式传入 ignore_cache=False 并配置 enabled=true。"
+            )
+
+        # 用配置覆盖 None 入参（显式传值优先级最高）
+        max_pages = max_pages if max_pages is not None else cfg.max_pages
+        timeout = timeout if timeout is not None else cfg.timeout
+        use_dynamic = use_dynamic if use_dynamic is not None else cfg.use_playwright
+
         domain = _extract_domain(start_url)
 
         # 1) 检查缓存
@@ -112,19 +142,28 @@ class WebsiteCrawler:
                         page.from_cache = True
                     return cached
 
-        # 2) 执行爬取
-        crawled_at = beijing_now().isoformat()
-        result = cls._crawl_domain(
-            start_url=start_url,
-            domain=domain,
-            max_pages=max_pages,
-            timeout=timeout,
-            use_dynamic=use_dynamic,
-            allowed_patterns=allowed_patterns,
-            excluded_patterns=excluded_patterns,
-            user_agent=user_agent,
-        )
-        result.crawled_at = crawled_at
+        # 2) 执行爬取（受全局并发信号量保护，防止 Playwright 浏览器实例过多）
+        from geo_review.utils.concurrency import ConcurrencyManager
+        cm = ConcurrencyManager.get_instance()
+
+        with cm.crawl_context(timeout=60.0) as acquired:
+            if not acquired:
+                # 并发槽位获取超时 — 降级为静态爬取
+                logger.warning(f"爬虫并发已满，降级为静态爬取: {domain}")
+                use_dynamic = False
+
+            crawled_at = beijing_now().isoformat()
+            result = cls._crawl_domain(
+                start_url=start_url,
+                domain=domain,
+                max_pages=max_pages,
+                timeout=timeout,
+                use_dynamic=use_dynamic,
+                allowed_patterns=allowed_patterns,
+                excluded_patterns=excluded_patterns,
+                user_agent=user_agent,
+            )
+            result.crawled_at = crawled_at
 
         # 3) 写入缓存
         with _CACHE_LOCK:
@@ -323,9 +362,9 @@ class WebsiteCrawler:
         if use_dynamic:
             try:
                 return cls._crawl_with_playwright(url, timeout, user_agent, crawled_at, browser=browser)
-            except Exception as dynamic_exc:
+            except Exception:
                 # 动态爬取失败，降级为静态爬取
-                pass
+                logger.debug(f"动态爬取失败，降级为静态: {url}")
 
         # 静态爬取
         try:

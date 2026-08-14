@@ -184,6 +184,17 @@ AI 审核不是终点，而是人工复核的起点：
 - 审核详情包含完整的问题列表、修改建议、修改清单
 - 支持导出文本/Markdown 格式
 
+### 12. 公司级资源缓存复用
+
+同一公司多次提交审核时，自动复用已缓存的官网爬取数据和结构化证据，避免重复爬取和解析：
+
+- **SQLite 持久化**：服务重启后缓存仍然有效
+- **智能缓存键**：按公司名标准化匹配（去除"有限公司"等后缀，忽略大小写）
+- **URL 变更检测**：官网 URL 变化时自动失效旧缓存并重新爬取
+- **TTL 过期机制**：可配置各类资源的过期时间（爬取数据默认 24 小时，提报表默认 7 天）
+- **缓存管理 API**：查看缓存统计、清除指定公司缓存、清除过期缓存
+- **审核响应标注**：缓存命中时在 warnings 中显示 `RESOURCE_CACHE_HIT` 标记
+
 ---
 
 ## 技术架构
@@ -201,10 +212,12 @@ AI 审核不是终点，而是人工复核的起点：
 │ Reviewer │  Engine  │  Client  │ Crawler  │  History     │
 │ Planner  │  Loader  │ Prompts  │ Website  │  Workflow    │
 │  Batch   │  Issues  │ Reviewer │ Parser   │  Monitoring  │
+│  Cache   │          │          │          │              │
 ├──────────┴──────────┴──────────┴──────────┴──────────────┤
 │                    数据存储层                               │
 │              SQLite (开发) / PostgreSQL (生产)              │
 │              YAML 规则模板 + 行业知识库                      │
+│              公司级资源缓存 (resource_cache.db)              │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -363,9 +376,12 @@ GEO生文审核/
     │   ├── loader.py           # 配置加载器
     │   └── models.py           # 配置数据模型
     ├── utils/                  # 工具函数
+    │   ├── concurrency.py      # 并发控制（信号量+熔断器）
     │   ├── text.py             # 文本处理
     │   ├── security.py         # 安全工具
     │   └── time.py             # 时间工具
+    ├── cache/                  # 资源缓存
+    │   └── resource_cache.py   # 公司级资源缓存（SQLite 持久化）
     └── models.py               # 全局数据模型
 ```
 
@@ -389,6 +405,12 @@ GEO生文审核/
 | GET | `/api/v1/rules/templates` | 规则模板列表 |
 | GET | `/api/v1/health` | 健康检查 |
 | GET | `/api/v1/monitoring` | 系统监控 |
+| GET | `/api/v1/cache/stats` | 缓存统计 |
+| GET | `/api/v1/cache/companies` | 缓存公司列表 |
+| GET | `/api/v1/cache/{company_name}` | 查看公司缓存详情 |
+| DELETE | `/api/v1/cache/{company_name}` | 清除指定公司缓存 |
+| DELETE | `/api/v1/cache` | 清除全部缓存 |
+| POST | `/api/v1/cache/cleanup` | 清除过期缓存 |
 
 ### 审核请求示例
 

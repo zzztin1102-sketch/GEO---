@@ -45,11 +45,12 @@ class ReviewOptions(BaseModel):
     """审核选项.
 
     控制是否爬取官网、是否启用 LLM 审核等行为开关。
+    crawl_max_pages / crawl_timeout_seconds 默认为 None 时由 CrawlerConfig 提供。
     """
 
     crawl_official_urls: bool = False
-    crawl_max_pages: int = 10
-    crawl_timeout_seconds: int = 30
+    crawl_max_pages: Optional[int] = Field(default=None, description="最大爬取页面数（None 时使用 CrawlerConfig.max_pages）")
+    crawl_timeout_seconds: Optional[int] = Field(default=None, description="单页爬取超时秒数（None 时使用 CrawlerConfig.timeout）")
     use_llm: bool = True
     use_fact_check: bool = True
 

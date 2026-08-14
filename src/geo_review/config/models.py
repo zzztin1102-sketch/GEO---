@@ -1,32 +1,34 @@
 """配置数据模型 — 统一管理系统配置（优化版）.
 
 优化点：
-    1. LLMConfig 新增 fallback_model、enable_cache、cache_ttl、confidence_threshold、max_issues
+    1. LLM 配置统一从 geo_review.llm.models.LLMProviderConfig 引入，消除 LLMConfig/LLMProviderConfig 重复
     2. APIConfig 的 cors_origins 默认值收紧
     3. AuthConfig 默认启用认证
 """
 
-from typing import Dict, List, Optional
+from typing import List, Optional
 from pydantic import BaseModel, Field
 
+# ✅ LLM 配置统一来源：geo_review.llm.models.LLMProviderConfig
+# 这里通过 re-import 兼容旧路径 `from geo_review.config.models import LLMConfig`
+from geo_review.llm.models import LLMProviderConfig as LLMConfig  # noqa: F401  兼容旧导入路径
 
-class LLMConfig(BaseModel):
-    """LLM 配置."""
-    provider: str = Field(default="openai", description="LLM 提供商")
-    base_url: Optional[str] = Field(default=None, description="API 基础 URL")
-    api_key: Optional[str] = Field(default=None, description="API Key（建议通过环境变量设置）")
-    model: str = Field(default="gpt-4o-mini", description="主模型名称（支持任意 OpenAI 兼容模型）")
-    # ✅ 新增：降级模型
-    fallback_model: Optional[str] = Field(default=None, description="主模型不可用时的降级模型")
-    temperature: float = Field(default=0.1, ge=0.0, le=2.0, description="温度参数")
-    max_tokens: int = Field(default=4000, ge=100, le=32000, description="最大 token 数")
-    timeout: int = Field(default=60, ge=10, le=300, description="超时时间（秒）")
-    # ✅ 新增：LLM 结果缓存
-    enable_cache: bool = Field(default=False, description="是否启用 LLM 结果缓存")
-    cache_ttl: int = Field(default=3600, ge=0, description="缓存过期时间（秒），0 表示不过期")
-    # ✅ 新增：审核参数可配置化（之前硬编码在 reviewer.py 中）
-    confidence_threshold: float = Field(default=0.6, ge=0.0, le=1.0, description="置信度阈值，低于此值的问题降级为 info")
-    max_issues: int = Field(default=20, ge=1, le=100, description="LLM 单次最多返回的问题数")
+
+__all__ = [
+    "LLMConfig",
+    "CrawlerConfig",
+    "RuleEngineConfig",
+    "DatabaseConfig",
+    "BatchConfig",
+    "APIConfig",
+    "LogConfig",
+    "AuthConfig",
+    "FactCheckConfig",
+    "RateLimitConfig",
+    "ConcurrencyConfig",
+    "CacheConfig",
+    "AppConfig",
+]
 
 
 class CrawlerConfig(BaseModel):
@@ -35,7 +37,7 @@ class CrawlerConfig(BaseModel):
     use_playwright: bool = Field(default=True, description="是否使用 Playwright 处理动态页面")
     max_pages: int = Field(default=5, ge=1, le=50, description="最大爬取页面数")
     timeout: int = Field(default=30, ge=5, le=120, description="爬取超时（秒）")
-    cache_ttl: int = Field(default=3600, ge=0, description="缓存过期时间（秒），0 表示不过期")
+    # 注意：进程内 _CACHE 不带 TTL（重启即清空），真正的持久化 TTL 由 CacheConfig.crawl_ttl_hours 控制（公司级缓存模块）。
 
 
 class RuleEngineConfig(BaseModel):
@@ -122,6 +124,25 @@ class RateLimitConfig(BaseModel):
     default_limit: str = Field(default="60/minute", description="默认 API 限流")
 
 
+class ConcurrencyConfig(BaseModel):
+    """高并发控制配置 — 管理全局信号量和熔断器."""
+    max_concurrent_reviews: int = Field(default=5, ge=1, le=50, description="全局最大并发审核数（含单次+批量）")
+    max_concurrent_llm_calls: int = Field(default=5, ge=1, le=30, description="全局最大并发 LLM API 调用数（防止超出 API 速率限制）")
+    max_concurrent_crawls: int = Field(default=2, ge=1, le=10, description="全局最大并发爬虫数（Playwright 浏览器很重，建议 1-3）")
+    circuit_breaker_enabled: bool = Field(default=True, description="是否启用 LLM API 熔断器")
+    circuit_breaker_threshold: int = Field(default=5, ge=1, le=20, description="连续失败次数阈值，超过后触发熔断")
+    circuit_breaker_cooldown: float = Field(default=60.0, ge=5.0, le=600.0, description="熔断后冷却时间（秒）")
+
+
+class CacheConfig(BaseModel):
+    """公司级资源缓存配置 — 复用已爬取的官网数据和已解析的提报表."""
+    enabled: bool = Field(default=True, description="是否启用公司级资源缓存")
+    db_path: str = Field(default="resource_cache.db", description="缓存数据库路径（SQLite）")
+    submission_ttl_hours: int = Field(default=168, ge=0, description="提报表缓存过期时间（小时），默认 7 天，0=永不过期")
+    crawl_ttl_hours: int = Field(default=24, ge=0, description="官网爬取缓存过期时间（小时），默认 1 天，0=永不过期")
+    evidence_ttl_hours: int = Field(default=24, ge=0, description="结构化证据缓存过期时间（小时），默认 1 天，0=永不过期")
+
+
 class AppConfig(BaseModel):
     """应用总配置."""
     llm: LLMConfig = Field(default_factory=LLMConfig)
@@ -134,3 +155,5 @@ class AppConfig(BaseModel):
     auth: AuthConfig = Field(default_factory=AuthConfig)
     fact_check: FactCheckConfig = Field(default_factory=FactCheckConfig)
     rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
+    concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
+    cache: CacheConfig = Field(default_factory=CacheConfig)

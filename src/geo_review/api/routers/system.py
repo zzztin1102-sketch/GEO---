@@ -51,6 +51,24 @@ async def health_check(request: Request):
     except Exception as e:
         checks["llm"] = {"status": "error", "message": str(e)}
 
+    # ✅ 并发控制状态
+    try:
+        from geo_review.utils.concurrency import ConcurrencyManager
+        cm = ConcurrencyManager.get_instance()
+        checks["concurrency"] = cm.stats
+    except Exception as e:
+        checks["concurrency"] = {"status": "error", "message": str(e)}
+
+    # ✅ 资源缓存状态
+    try:
+        resource_cache = getattr(request.app.state, "_resource_cache", None)
+        if resource_cache:
+            checks["resource_cache"] = resource_cache.get_stats()
+        else:
+            checks["resource_cache"] = {"enabled": False}
+    except Exception as e:
+        checks["resource_cache"] = {"status": "error", "message": str(e)}
+
     # 工作流状态
     wf_counts = workflow_service.get_all_status_counts()
     checks["workflow"] = {
@@ -119,4 +137,6 @@ async def get_config(request: Request):
             "workers": config.api.workers,
         },
         "log": config.log.model_dump(),
+        "concurrency": config.concurrency.model_dump(),
+        "cache": config.cache.model_dump(),
     }

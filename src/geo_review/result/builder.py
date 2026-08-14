@@ -280,15 +280,15 @@ class ReviewResultBuilder:
             "geo_citability": 0.20,
             "content_quality": 0.15,
         }
-        overall = int(sum(scores[k] * w for k, w in weights.items()))
+        overall = int(round(sum(scores[k] * w for k, w in weights.items())))
 
         return ReviewScoreCard(
             overall=overall,
-            compliance=scores["compliance"],
-            factual_accuracy=scores["factual_accuracy"],
-            brand_consistency=scores["brand_consistency"],
-            geo_citability=scores["geo_citability"],
-            content_quality=scores["content_quality"],
+            compliance=int(round(scores["compliance"])),
+            factual_accuracy=int(round(scores["factual_accuracy"])),
+            brand_consistency=int(round(scores["brand_consistency"])),
+            geo_citability=int(round(scores["geo_citability"])),
+            content_quality=int(round(scores["content_quality"])),
         )
 
     # ------ 内部方法 ------

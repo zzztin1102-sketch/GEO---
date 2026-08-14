@@ -101,21 +101,6 @@ class Submission(BaseModel):
         return v
 
 
-class ContentInput(BaseModel):
-    """待审正文输入 — 文本或文件引用."""
-    input_type: str = Field(..., pattern="^(text|file)$")
-    text: Optional[str] = None
-    file: Optional[dict] = None
-
-
-class SubmissionInput(BaseModel):
-    """提报表输入 — 文本/JSON/文件."""
-    input_type: str = Field(..., pattern="^(text|json|file)$")
-    text: Optional[str] = None
-    data: Optional[Submission] = None
-    file: Optional[dict] = None
-
-
 class ParsedContent(BaseModel):
     """解析后的待审正文内容."""
     text: str = Field(..., min_length=1, description="提取的纯文本内容")
@@ -149,13 +134,3 @@ class CrawledDomain(BaseModel):
     total_chars: int = Field(default=0, description="总字符数")
     crawled_at: str = Field(default="", description="首次爬取时间")
     from_cache: bool = Field(default=False, description="是否全部来自缓存")
-
-
-class ReviewRequest(BaseModel):
-    """完整审核请求."""
-    request_id: Optional[str] = None
-    content: ContentInput
-    submission: SubmissionInput
-    official_urls: List[str] = Field(default_factory=list)
-    options: Optional[dict] = None
-    metadata: Optional[dict] = None

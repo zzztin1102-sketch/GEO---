@@ -19,5 +19,7 @@ bcrypt>=4.0.0
 PyPDF2>=3.0.0
 python-docx>=1.0.0
 docx2txt>=0.8
+# 动态爬取依赖（可选，未安装时自动降级为静态爬取）
+playwright>=1.40.0
 # 测试依赖
 pytest>=7.4.0

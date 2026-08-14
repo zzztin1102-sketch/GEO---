@@ -22,6 +22,7 @@ from geo_review.agent.models import (
     SubmissionFileInput,
 )
 from geo_review.agent.planner import ReviewPlan, TaskPlanner
+from geo_review.cache.resource_cache import CompanyResourceCache
 from geo_review.crawlers.website import CrawledDomain, WebsiteCrawler
 from geo_review.llm.client import LLMClient
 from geo_review.llm.models import LLMProviderConfig
@@ -75,6 +76,7 @@ class ReviewAgent:
         fact_check_max_claims: int = 5,
         fact_check_max_search_results: int = 5,
         fact_check_search_timeout: int = 15,
+        resource_cache: Optional[CompanyResourceCache] = None,
     ):
         self.llm_config = llm_config or LLMProviderConfig()
         self._llm_client: Optional[LLMClient] = None
@@ -91,6 +93,10 @@ class ReviewAgent:
         self._fact_check_max_claims: int = fact_check_max_claims
         self._fact_check_max_search_results: int = fact_check_max_search_results
         self._fact_check_search_timeout: int = fact_check_search_timeout
+        # ✅ 公司级资源缓存（复用官网爬取和提报表解析结果）
+        self._resource_cache: Optional[CompanyResourceCache] = resource_cache
+        # ✅ 共享线程池（避免每次 review 创建新的 ThreadPoolExecutor 导致线程爆炸）
+        self._executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="review")
 
     @property
     def llm_client(self) -> LLMClient:
@@ -164,6 +170,30 @@ class ReviewAgent:
         # 使用传入的行业知识库或默认的
         active_industry_kb = industry_kb or self._industry_kb
 
+        # ✅ 全局并发控制：获取审核任务槽位（防止高并发下线程爆炸）
+        from geo_review.utils.concurrency import ConcurrencyManager
+        cm = ConcurrencyManager.get_instance()
+
+        with cm.review_context(timeout=60.0) as review_slot:
+            if not review_slot:
+                return self._build_error_response(
+                    "CONCURRENCY_LIMIT",
+                    "系统当前并发已满，请稍后重试",
+                    request_data.get("request_id"),
+                )
+            return self._do_review(
+                request_data, rules, active_industry_kb, industry,
+            )
+
+    def _do_review(
+        self,
+        request_data: Dict[str, Any],
+        rules: Optional[Dict[str, Any]],
+        active_industry_kb: Optional[Any],
+        industry: Optional[str],
+    ) -> ReviewResponse:
+        """实际执行审核流程（在获取到并发槽位后调用）."""
+
         # 1. 验证请求
         try:
             request = ReviewRequest(**request_data)
@@ -188,6 +218,15 @@ class ReviewAgent:
                 f"提报表解析失败: {str(e)}",
                 request.request_id,
             )
+
+        # ✅ 保存提报表到缓存（用于公司名识别和 URL 验证）
+        if self._resource_cache and submission and submission.company_name:
+            try:
+                self._resource_cache.save_submission(
+                    submission.company_name, submission, submission.official_urls,
+                )
+            except Exception as e:
+                logger.warning(f"保存提报表缓存失败: {e}")
 
         # 3. 解析正文
         content_text: str = ""
@@ -216,17 +255,32 @@ class ReviewAgent:
         builder.set_plan(plan)
 
         # 4.5. 爬取官网（可选，根据 plan 决定是否默认启用）
+        # ✅ 资源缓存：优先从缓存获取，命中时跳过爬取
         crawled: Optional[CrawledDomain] = None
         failed_urls: List[tuple] = []
         official_urls = request.get_all_official_urls()
         options = request.options or ReviewOptions()
+        company_name = submission.company_name if submission else ""
+        cached_resources: Dict[str, Any] = {}
+        crawl_from_cache = False
 
         # Plan → Act: TaskPlanner 的决策驱动执行
-        # 如果 plan 建议爬取，自动启用爬取（除非用户明确关闭 use_llm=False 的极端场景）
-        # 修复 ChatGPT 指出的 "Planning → Execution 没完全打通" 问题
         should_crawl = options.crawl_official_urls or plan.crawl_official_urls
 
-        if should_crawl and official_urls:
+        # ✅ 检查资源缓存
+        if should_crawl and official_urls and self._resource_cache and company_name:
+            cached_resources = self._resource_cache.get_resources(company_name, official_urls)
+            if "crawled_domain" in cached_resources:
+                crawled = cached_resources["crawled_domain"]
+                crawl_from_cache = True
+                builder.add_warning(
+                    "RESOURCE_CACHE_HIT",
+                    f"官网爬取数据来自缓存（公司: {company_name}），跳过重复爬取",
+                )
+                logger.info(f"资源缓存命中 [官网爬取]: {company_name}")
+
+        # 缓存未命中时执行爬取
+        if should_crawl and official_urls and crawled is None:
             try:
                 crawled, failed_urls = self._crawl_websites(
                     official_urls,
@@ -239,21 +293,44 @@ class ReviewAgent:
                     f"官网爬取异常: {str(e)}",
                 )
 
+            # ✅ 爬取成功后保存到缓存
+            if crawled and crawled.success_pages > 0 and self._resource_cache and company_name:
+                try:
+                    self._resource_cache.save_crawl_data(company_name, crawled, official_urls)
+                except Exception as e:
+                    logger.warning(f"保存爬取缓存失败: {e}")
+
         builder.set_website_info(crawled, official_urls, failed_urls)
 
         # 4.6. 从官网爬取结果中提取结构化证据（EvidenceStore）
+        # ✅ 资源缓存：优先使用缓存中的证据
         evidence_store: Optional[EvidenceStore] = None
         if crawled and crawled.success_pages > 0:
-            try:
-                company_name = submission.company_name if submission else ""
-                evidence_store = extract_evidence(crawled, company_name)
-                logger.info(
-                    f"EvidenceStore: 提取完成 — 公司={evidence_store.company_full_name or '未知'}, "
-                    f"产品={len(evidence_store.products)}个, 认证={len(evidence_store.certifications)}个, "
-                    f"关键事实={len(evidence_store.company_facts) + len(evidence_store.product_facts) + len(evidence_store.key_data)}条"
+            if "evidence_store" in cached_resources:
+                # 缓存命中
+                evidence_store = cached_resources["evidence_store"]
+                builder.add_warning(
+                    "RESOURCE_CACHE_HIT",
+                    f"结构化证据来自缓存（公司: {company_name}），跳过重复提取",
                 )
-            except Exception as e:
-                logger.warning(f"EvidenceStore: 提取失败（回退到原始文本模式）: {e}")
+                logger.info(f"资源缓存命中 [结构化证据]: {company_name}")
+            else:
+                # 缓存未命中，执行提取
+                try:
+                    evidence_store = extract_evidence(crawled, company_name)
+                    logger.info(
+                        f"EvidenceStore: 提取完成 — 公司={evidence_store.company_full_name or '未知'}, "
+                        f"产品={len(evidence_store.products)}个, 认证={len(evidence_store.certifications)}个, "
+                        f"关键事实={len(evidence_store.company_facts) + len(evidence_store.product_facts) + len(evidence_store.key_data)}条"
+                    )
+                    # ✅ 保存证据到缓存
+                    if self._resource_cache and company_name:
+                        try:
+                            self._resource_cache.save_evidence(company_name, evidence_store)
+                        except Exception as e:
+                            logger.warning(f"保存证据缓存失败: {e}")
+                except Exception as e:
+                    logger.warning(f"EvidenceStore: 提取失败（回退到原始文本模式）: {e}")
 
         # 5. 加载规则（根据 plan 选择规则模板）
         try:
@@ -307,14 +384,14 @@ class ReviewAgent:
             except Exception as e:
                 return ([], []), e
 
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            future_rules = executor.submit(_run_rules)
-            future_llm = executor.submit(_run_llm)
-            future_fact = executor.submit(_run_fact_check)
+        # ✅ 使用共享线程池（避免每次 review 创建新线程池导致线程爆炸）
+        future_rules = self._executor.submit(_run_rules)
+        future_llm = self._executor.submit(_run_llm)
+        future_fact = self._executor.submit(_run_fact_check)
 
-            rule_issues, rule_error = future_rules.result()
-            llm_tuple, llm_error = future_llm.result()
-            fact_tuple, fact_error = future_fact.result()
+        rule_issues, rule_error = future_rules.result()
+        llm_tuple, llm_error = future_llm.result()
+        fact_tuple, fact_error = future_fact.result()
 
         if rule_error:
             builder.add_warning(
@@ -555,6 +632,7 @@ class ReviewAgent:
 
         if len(valid_urls) == 1:
             try:
+                # max_pages / timeout 传 None 时让 WebsiteCrawler 用 CrawlerConfig 的值
                 result = WebsiteCrawler.crawl(valid_urls[0], max_pages=max_pages, timeout=timeout)
                 if result and result.success_pages > 0:
                     return result, failed_urls

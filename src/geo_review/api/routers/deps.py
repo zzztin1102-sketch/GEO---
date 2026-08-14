@@ -43,10 +43,6 @@ def get_workflow_service(request: Request):
     return request.app.state._workflow
 
 
-def get_metrics_collector(request: Request):
-    return request.app.state._metrics
-
-
 def get_rule_set(request: Request):
     return request.app.state._rule_set
 
