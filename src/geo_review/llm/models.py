@@ -45,7 +45,7 @@ class LLMProviderConfig(BaseModel):
     provider: str = Field(default="openai")
     base_url: Optional[str] = None
     api_key: Optional[str] = None
-    model: str = Field(default="qwen-plus")
+    model: str = Field(default="gpt-4o-mini")
     # ✅ 新增：降级模型
     fallback_model: Optional[str] = Field(default=None, description="主模型不可用时的降级模型")
     temperature: float = Field(default=0.1, ge=0.0, le=2.0)

@@ -116,7 +116,7 @@ TaskPlanner（任务规划）
 
 ### 4. LLM 语义审核
 
-- 基于通义千问大模型，模拟 6 年经验的 GEO 审核专家
+- 基于大语言模型，模拟 6 年经验的 GEO 审核专家
 - 7 大问题类型：不一致、无依据宣称、夸大宣传、贬低竞品、语义风险、语气不当
 - 4 级严重程度：CRITICAL / HIGH / MEDIUM / LOW
 - 每个问题包含：原文片段、问题原因、修改建议、置信度
@@ -214,7 +214,7 @@ AI 审核不是终点，而是人工复核的起点：
 |------|------|------|
 | 前端 | 原生 HTML/CSS/JS | 无框架依赖，加载快，适合演示 |
 | 后端 | Python FastAPI | 高性能异步框架，自动生成 API 文档 |
-| LLM | 通义千问 (DashScope) | 兼容 OpenAI SDK，支持 Qwen3 系列 |
+| LLM | OpenAI 兼容 API | 支持 OpenAI / 通义千问 / DeepSeek / 智谱 GLM 等 |
 | 爬虫 | Playwright | 无头浏览器，支持 JS 渲染页面 |
 | 数据库 | SQLite + SQLAlchemy | 轻量级，零配置 |
 | 部署 | Docker + Docker Compose | 一键构建和部署 |
@@ -263,15 +263,16 @@ pip install -r requirements.txt
 
 ### 3. 配置 API Key
 
-编辑 `config.yaml`，填入你的通义千问 API Key：
+编辑 `config.yaml`，填入你的 LLM API Key（支持任意 OpenAI 兼容 API）：
 
 ```yaml
 llm:
-  api_key: your-dashscope-api-key
-  model: qwen3.7-plus
+  api_key: your-api-key
+  base_url: https://api.openai.com/v1    # OpenAI 默认；切换通义千问改为 https://dashscope.aliyuncs.com/compatible-mode/v1
+  model: gpt-4o-mini                     # OpenAI 默认；切换通义千问改为 qwen-plus
 ```
 
-> 获取 API Key：https://dashscope.console.aliyun.com/
+> 也可通过环境变量 `LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL` 配置，优先级高于 config.yaml。
 
 ### 4. 启动服务
 
@@ -320,7 +321,7 @@ GEO生文审核/
     │   ├── batch.py            # 批量审核
     │   └── models.py           # Agent 数据模型
     ├── llm/                    # LLM 模块
-    │   ├── client.py           # LLM 客户端（通义千问）
+    │   ├── client.py           # LLM 客户端（OpenAI 兼容）
     │   ├── reviewer.py         # LLM 语义审核
     │   ├── prompts.py          # 动态 Prompt 管理
     │   └── models.py           # LLM 数据模型

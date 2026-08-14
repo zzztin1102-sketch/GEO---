@@ -15,7 +15,7 @@ class LLMConfig(BaseModel):
     provider: str = Field(default="openai", description="LLM 提供商")
     base_url: Optional[str] = Field(default=None, description="API 基础 URL")
     api_key: Optional[str] = Field(default=None, description="API Key（建议通过环境变量设置）")
-    model: str = Field(default="qwen-plus", description="主模型名称")
+    model: str = Field(default="gpt-4o-mini", description="主模型名称（支持任意 OpenAI 兼容模型）")
     # ✅ 新增：降级模型
     fallback_model: Optional[str] = Field(default=None, description="主模型不可用时的降级模型")
     temperature: float = Field(default=0.1, ge=0.0, le=2.0, description="温度参数")
