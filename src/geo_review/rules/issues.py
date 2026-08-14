@@ -27,6 +27,13 @@ class IssueSeverity(str, Enum):
     INFO = "info"
 
 
+class IssueSource(str, Enum):
+    """问题检测来源 — 分离发现层(Discovery)与裁决层(Adjudication)."""
+    RULE_ENGINE = "rule_engine"      # 确定性规则引擎发现
+    LLM_REVIEWER = "llm_reviewer"   # LLM 语义审核发现
+    FACT_CHECKER = "fact_checker"   # 联网事实核查发现
+
+
 class IssueEvidence(BaseModel):
     """问题证据."""
     snippet: str = Field(..., min_length=1, max_length=2000)
@@ -38,14 +45,17 @@ class IssueEvidence(BaseModel):
 
 
 class Issue(BaseModel):
-    """审核问题."""
+    """审核问题 — 五层结构：Detection → Evidence → Assessment → Decision → Recommendation."""
     id: str = Field(..., pattern=r"^ISS-\d{3,}$")
     type: IssueType
     severity: IssueSeverity
     title: str = Field(..., min_length=1, max_length=200)
     evidence: IssueEvidence
-    reason: str = Field(default="", max_length=2000, description="问题原因分析")
-    suggestion: str = Field(..., min_length=1, max_length=2000)
+    reason: str = Field(default="", max_length=2000, description="问题原因分析（Assessment层）")
+    suggestion: str = Field(..., min_length=1, max_length=2000, description="修改建议（Recommendation层）")
+    source: Optional[str] = Field(default=None, description="检测来源: rule_engine / llm_reviewer / fact_checker")
+    detection_layer: Optional[str] = Field(default=None, description="检测层标识: compliance / factual / geo_quality")
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0, description="规则置信度（0-1），低于0.5的规则问题可被降级处理")
 
     @classmethod
     def make_id(cls, idx: int) -> str:

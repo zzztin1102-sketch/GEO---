@@ -1,8 +1,9 @@
 """History routes — list, detail, delete, statistics."""
 
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel
 
 router = APIRouter()
 
@@ -118,3 +119,36 @@ async def batch_delete_history(review_ids: List[str], request: Request):
         return {"status": "deleted", "count": count}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"批量删除失败: {str(e)}")
+
+
+# ----------------------------------------------------------------------
+# 人工复核闭环 API
+# ----------------------------------------------------------------------
+
+class HumanReviewRequest(BaseModel):
+    """人工复核请求."""
+    status: str  # confirmed / rejected / false_positive / revised
+    reviewer: str = ""
+    comment: str = ""
+    issue_actions: Dict[str, str] = {}  # {issue_id: "accept" / "false_positive" / "modify"}
+
+
+@router.put("/api/v1/history/{review_id}/human-review", tags=["历史记录"])
+async def update_human_review(review_id: str, body: HumanReviewRequest, request: Request):
+    """保存人工复核结果.
+
+    人工复核闭环：AI审核 → 人工确认 → 接受/驳回/误报标记 → 记录结果
+    """
+    history_service = request.app.state._history_service
+    try:
+        success = await history_service.update_human_review(
+            review_id=review_id,
+            human_review_data=body.model_dump(),
+        )
+        if not success:
+            raise HTTPException(status_code=404, detail=f"审核记录 '{review_id}' 不存在")
+        return {"status": "updated", "review_id": review_id, "human_review_status": body.status}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"保存人工复核结果失败: {str(e)}")

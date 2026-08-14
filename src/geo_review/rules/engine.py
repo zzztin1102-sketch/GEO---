@@ -298,6 +298,7 @@ class RuleEngine:
                         f'建议改为可验证的客观描述，如"在XX领域具有竞争优势"'
                         f'"受到众多用户认可"，或提供权威机构认证的具体排名数据。'
                     ),
+                    confidence=0.7,
                 ))
 
         # B. 扩展绝对化用语检测
@@ -319,6 +320,7 @@ class RuleEngine:
                     ),
                     reason=explanation + "。此类表述无法验证且易使受众产生产品/服务覆盖完整、无遗漏的误解，属于不规范宣传用语。",
                     suggestion=f'建议改为"{replacement}"等有边界、可验证的表述。',
+                    confidence=0.65,
                 ))
 
         return issues
@@ -434,6 +436,7 @@ class RuleEngine:
                     ),
                     reason=f"提报表中标注的核心信息点「{keyword}」未在正文中找到字面表述。请注意，这仅作为提示，正文可能已通过语义等效的方式表达了该信息的核心含义。",
                     suggestion=f"确认正文是否已通过其他方式表达了「{keyword}」的核心含义；如确实未涉及，建议补充相关内容以确保文案与提报意图一致。",
+                    confidence=0.4,
                 ))
 
         return issues
@@ -442,7 +445,7 @@ class RuleEngine:
     # 5.5 语句质量检测（病句、成分残缺、语义断裂）
     # ------------------------------------------------------------------
     def _check_sentence_quality(self, content: str, counter: List[int]) -> List[Issue]:
-        """检测语句质量 —— 成分残缺、语义断裂、明显病句."""
+        """检测语句质量 — 成分残缺、语义断裂（仅保留高置信度模式）."""
         issues = []
 
         # 模式1: "通过...，使得..." 缺主语
@@ -462,32 +465,12 @@ class RuleEngine:
                 ),
                 reason="「通过……，使得……」是典型的成分残缺句式，缺少动作的执行者（主语），导致句子语法不通、语义模糊，严重影响阅读体验和品牌专业形象。",
                 suggestion="修改为主谓宾完整的句式，如「公司通过技术创新，大幅提升了产品性能」或「技术创新使得产品性能大幅提升」。",
+                confidence=0.85,
             ))
 
-        # 模式2: 句子以介词/连词开头，后面缺少完整谓语
-        # 检测 "为了...，" 后面没有主语的情况
-        pattern2 = re.compile(r"为了[^，。；\n]{2,40}，(?:更好地|进一步|持续|不断|致力于)")
+        # 模式2: "不仅..." 后面没有 "而且/还/也" 等呼应
+        pattern2 = re.compile(r"不仅[^，。；\n]{3,60}(?![^，。；\n]{0,60}(?:而且|还|也|更|甚至))")
         for match in pattern2.finditer(content):
-            counter[0] += 1
-            snippet = self._extract_sentence_context(content, match.start(), match.end())
-            issues.append(Issue(
-                id=Issue.make_id(counter[0]),
-                type=IssueType.SEMANTIC_RISK,
-                severity=IssueSeverity.MINOR,
-                title="语句成分残缺（介词结构后缺主语）",
-                evidence=IssueEvidence(
-                    snippet=snippet,
-                    reference_source="review_rule",
-                    reference_detail="检测到'为了...，更好地/致力于...'结构，缺少主语",
-                ),
-                reason="「为了……，致力于……」这类句式若缺少主语，读者无法确定动作的执行者，造成语义不完整。",
-                suggestion="补充主语，如「为了提升用户体验，公司致力于优化产品细节」。",
-            ))
-
-        # 模式3: "不仅..." 后面没有 "而且/还/也" 等呼应
-        pattern3 = re.compile(r"不仅[^，。；\n]{3,60}(?![^，。；\n]{0,60}(?:而且|还|也|更|甚至))")
-        for match in pattern3.finditer(content):
-            # 向前检查120字符内是否有呼应
             start = max(0, match.start() - 120)
             window = content[start:match.end() + 120]
             if "而且" not in window and "还" not in window and "也" not in window and "更" not in window:
@@ -505,59 +488,8 @@ class RuleEngine:
                     ),
                     reason="「不仅」是表示递进关系的关联词，必须与「而且」「还」「也」等呼应使用。单独使用「不仅」会导致语义断裂，读者无法获取完整信息。",
                     suggestion="补充递进呼应，如「不仅拥有先进技术，而且服务覆盖全国」。",
+                    confidence=0.75,
                 ))
-
-        # 模式4: 明显的不完整句子（以"为""对""在""与""及"等结尾）
-        # 检测行尾或句尾以介词/连词结束的情况
-        lines = content.split("\n")
-        for line in lines:
-            line = line.strip()
-            if len(line) > 5 and len(line) < 80:
-                # 如果以常见介词/连词结尾，且没有标点符号结束
-                if re.search(r"(?:为|对|在|与|及|向|从|到|把|被|让|给|比|跟|同|和|或|但|而|因|若|虽|即|如|当|于|以|自|至|沿|顺|由|被|把|将|向|往|从|在|到|给|对|为|跟|同|和|与|及|或|但|而|因|若|虽|即|如|当|于|以|自|至)$", line):
-                    if not line[-1] in "。！？.!?；":
-                        counter[0] += 1
-                        snippet = line[:120]
-                        issues.append(Issue(
-                            id=Issue.make_id(counter[0]),
-                            type=IssueType.SEMANTIC_RISK,
-                            severity=IssueSeverity.MAJOR,
-                            title="语句不完整（以介词/连词结尾）",
-                            evidence=IssueEvidence(
-                                snippet=snippet,
-                                reference_source="review_rule",
-                                reference_detail="句子以介词或连词结尾，缺少后续成分",
-                            ),
-                            reason="句子以介词或连词结尾，后续成分缺失，导致语义突然中断，读者无法获取完整信息，严重影响阅读体验。",
-                            suggestion="补全句子，确保每个句子都有完整的主谓宾或主谓结构，语义表达完整。",
-                        ))
-                        break  # 每个文档只报一次此类问题，避免泛滥
-
-        # 模式5: "由于...，" 后面没有结果从句
-        pattern5 = re.compile(r"由于[^，。；\n]{2,40}，(?:[^，。；\n]{2,20}(?:因此|所以|从而|致使|导致)|$)")
-        # 简化：检测 "由于..." 但没有 "因此/所以/从而" 的情况
-        # 这里用简单策略：如果出现"由于"但在其后60字符内没有结果表述
-        if "由于" in content:
-            for match in re.finditer(r"由于", content):
-                end = min(len(content), match.end() + 80)
-                window = content[match.end():end]
-                if "因此" not in window and "所以" not in window and "从而" not in window and "导致" not in window and "使得" not in window:
-                    counter[0] += 1
-                    snippet = self._extract_sentence_context(content, match.start(), end)
-                    issues.append(Issue(
-                        id=Issue.make_id(counter[0]),
-                        type=IssueType.SEMANTIC_RISK,
-                        severity=IssueSeverity.MINOR,
-                        title="因果关系不完整（有因无果）",
-                        evidence=IssueEvidence(
-                            snippet=snippet,
-                            reference_source="review_rule",
-                            reference_detail="使用'由于'引出原因，但后续缺少结果表述",
-                        ),
-                        reason="「由于」用于引出原因，通常需要配合「因此」「所以」「从而」等引出结果。只陈述原因而不说明结果，导致语义不完整。",
-                        suggestion="补充结果从句，如「由于采用了新技术，因此产品性能得到显著提升」。",
-                    ))
-                    break  # 只报一次
 
         return issues
 
@@ -647,14 +579,14 @@ class RuleEngine:
                     suggestion=f"如文案确实围绕「{core_topic}」展开，可不必修改；如主题明显偏离，请调整文案方向。",
                 ))
 
-        # 4. 疑似虚构内容检测
-        fake_patterns = [
-            (r"(权威|资深|顶级|知名|著名|著名专家|首席|教授|博士)", "专家身份", IssueSeverity.MAJOR),
-            (r"(研究显示|据调查|数据表明|研究表明|统计显示)", "研究数据", IssueSeverity.MINOR),
-            (r"(权威认证|国际认证|国家认证|官方认证)", "权威认证", IssueSeverity.MAJOR),
+        # 4. 疑似虚构内容检测 — 仅保留可验证的高风险模式
+        # 注意：不检测"权威/资深/知名"等通用营销词（误报率太高）
+        # 仅检测"研究显示/据调查"等需要来源支撑的表述
+        unverified_source_patterns = [
+            (r"(?:研究显示|据调查|数据表明|研究表明|统计显示)", "研究数据", IssueSeverity.MINOR),
         ]
 
-        for pattern, content_type, severity in fake_patterns:
+        for pattern, content_type, severity in unverified_source_patterns:
             try:
                 regex = re.compile(pattern)
                 matches = list(regex.finditer(content))
@@ -666,14 +598,15 @@ class RuleEngine:
                         id=Issue.make_id(counter[0]),
                         type=IssueType.UNSUPPORTED_CLAIM,
                         severity=severity,
-                        title=f"疑似虚构{content_type}",
+                        title=f"疑似未标注来源的{content_type}",
                         evidence=IssueEvidence(
                             snippet=snippet,
                             reference_source="review_rule",
-                            reference_detail=f"检测到{content_type}表述：{matched_text}",
+                            reference_detail=f"检测到{content_type}表述：{matched_text}，需核实来源",
                         ),
                         reason=f"正文中出现了{content_type}表述「{matched_text}」，但该{content_type}未在提报表或官网中找到对应依据，需人工核实来源是否真实有效。",
                         suggestion=f"请核实{content_type}「{matched_text}」的真实性和来源，如需保留请在提报表中补充相关证明材料或引用来源。",
+                        confidence=0.6,
                     ))
             except re.error:
                 continue
@@ -840,6 +773,7 @@ class RuleEngine:
                         ),
                         reason=f"正文中出现了数据「{number}」，但该数据未在提报表的允许事实列表中标注来源。在宣传文案中使用无来源的数据可能构成虚假或误导性宣传。",
                         suggestion=f"核实「{number}」的数据来源，如确有其事可在提报表中补充；如无法确认，建议删除该数据或改为更保守的表述方式。",
+                        confidence=0.4,
                     ))
                     continue
 
@@ -858,6 +792,7 @@ class RuleEngine:
                         ),
                         reason=f"正文中出现了数据「{number}」，但该数据未在官网内容中找到对应表述。如果该数据与官方口径不一致，可能引发信息不一致的风险。",
                         suggestion=f"核对「{number}」的官网表述方式，确认是否语义一致；如官网未提及该数据，建议删除或改为官网已确认的信息。",
+                        confidence=0.35,
                     ))
 
         return issues
@@ -1129,21 +1064,21 @@ class RuleEngine:
         return issues
 
     # ------------------------------------------------------------------
-    # 12. GEO 可引用性审核（新增）
+    # 12. GEO 可引用性审核（精简版 — 仅保留高置信度检查）
     # ------------------------------------------------------------------
     def _check_geo_citability(self, content: str, counter: List[int]) -> List[Issue]:
-        """GEO 可引用性审核 —— 检查内容是否对 AI 搜索引擎友好.
+        """GEO 可引用性审核 — 仅做确定性检查，语义判断交给 LLM.
 
-        检查维度：
-            A. 明确实体：是否存在具体实体名称（公司全称、产品名、品牌名）
-            B. 权威来源：关键数据/声明是否有可验证的来源引用
-            C. 结构化信息：是否包含列表、对比等结构化表达
-            D. 事实依据：核心主张是否有具体事实支撑
+        保留检查：
+            A. 明确实体：泛称/代词占比过高（可量化检测）
+            B. 模糊引用：检测"据说/据悉/众所周知"等无来源表述
+        已移除（交给 LLM 做语义判断）：
+            - 权威来源引用（正则匹配误报率高）
+            - 结构化信息（LLM 判断更准确）
         """
         issues: List[Issue] = []
 
-        # A. 明确实体检测 —— 检查是否过于依赖泛称/代词
-        # 统计代词（我们、其、该、本、此）占比
+        # A. 明确实体检测 — 泛称/代词占比
         generic_words = re.findall(r'我们|其|该司|该公司|本平台|此产品|该产品|该服务', content)
         entity_names = re.findall(
             r'(?:[\u4e00-\u9fff]{2,8}(?:公司|集团|科技|平台|银行|保险|证券|基金|医院|大学|学院|研究院))|'
@@ -1167,63 +1102,11 @@ class RuleEngine:
                 ),
                 reason=f"正文中使用了大量泛称或代词（{generic_count}处），而明确的实体名称较少（{len(entity_names)}处）。AI搜索引擎在提取实体时可能无法准确判断内容归属，影响GEO排名效果。",
                 suggestion="建议在正文开头及关键位置使用完整的公司名称、品牌名称，减少'我们''该平台'等泛称，确保AI能准确识别内容主体。",
+                confidence=0.8,
             ))
 
-        # B. 权威来源检测 —— 检查是否有引用来源
-        source_patterns = [
-            r'据[^，。；\n]{1,20}(?:调查|研究|统计|报告|显示|表明)',
-            r'(?:认证|专利|奖项|荣誉|资质|许可|备案)',
-            r'(?:ISO|GB|GB/T|行业标准|国家标准)',
-            r'(?:https?://|www\.)',
-        ]
-        has_source = False
-        for pattern in source_patterns:
-            if re.search(pattern, content):
-                has_source = True
-                break
-
-        # 仅当正文较长（>300字）且没有来源时才提示
-        if len(content) > 300 and not has_source:
-            counter[0] += 1
-            issues.append(Issue(
-                id=Issue.make_id(counter[0]),
-                type=IssueType.GEO_CITABILITY,
-                severity=IssueSeverity.MINOR,
-                title="缺少权威来源引用，AI搜索可能降低内容可信度评分",
-                evidence=IssueEvidence(
-                    snippet=content[:100] + "..." if len(content) > 100 else content,
-                    position="全文",
-                    reference_source="review_rule",
-                    reference_detail="正文中未检测到权威来源引用（认证/专利/标准/链接等）",
-                ),
-                reason="正文较长但未引用任何权威来源（认证、标准、专利、研究数据等）。AI搜索引擎在评估内容可信度时会优先推荐有权威来源支撑的内容，缺乏来源引用可能影响GEO表现。",
-                suggestion="建议在关键数据、声明处添加来源引用，如'据XX机构2024年报告''通过ISO9001认证''获得XX专利（专利号：XXX）'等。",
-            ))
-
-        # C. 结构化信息检测 —— 检查是否有列表/对比/分层表达
-        has_list = bool(re.search(r'(?:^|\n)\s*(?:[0-9]+[\.\、\)]|[-•·]\s)', content, re.MULTILINE))
-        has_table = bool(re.search(r'(?:┌|┐|└|┘|├|┤|─|│|┬|┴|┼)', content))
-        has_comparison = bool(re.search(r'(?:相比|对比|VS|vs|优于|不如|超过|低于)', content))
-
-        if len(content) > 500 and not (has_list or has_table or has_comparison):
-            counter[0] += 1
-            issues.append(Issue(
-                id=Issue.make_id(counter[0]),
-                type=IssueType.GEO_CITABILITY,
-                severity=IssueSeverity.INFO,
-                title="内容缺乏结构化表达，AI搜索难以提取结构化摘要",
-                evidence=IssueEvidence(
-                    snippet=content[:100] + "..." if len(content) > 100 else content,
-                    position="全文",
-                    reference_source="review_rule",
-                    reference_detail="长文本中未检测到列表、对比或表格等结构化表达",
-                ),
-                reason="AI搜索引擎偏好结构化内容（列表、表格、对比），以便在搜索结果中展示富文本摘要。当前内容为纯段落形式，可能降低AI搜索对内容的抓取和展示效果。",
-                suggestion="建议在适当位置使用列表、对比表格或分层结构组织信息，如产品优势前三项、核心数据对比等，提升AI搜索的抓取友好度。",
-            ))
-
-        # D. 事实依据检测 —— 检查是否有模糊引用
-        vague_refs = re.findall(r'据说|据悉|众所周知|大家都知道|业界公认|普遍认为|行业领先', content)
+        # B. 模糊引用检测 — 仅检测需要来源支撑的表述
+        vague_refs = re.findall(r'据说|据悉|众所周知|大家都知道|业界公认', content)
         if vague_refs and len(content) > 200:
             counter[0] += 1
             issues.append(Issue(
@@ -1238,20 +1121,22 @@ class RuleEngine:
                 ),
                 reason=f"正文中使用了{'、'.join(vague_refs[:3])}等模糊引用词，这些表述无法验证且缺乏具体事实支撑。AI搜索引擎对这类模糊表述的信任度较低，可能影响内容在搜索结果中的排名。",
                 suggestion="将模糊引用改为具体事实，如'据XX行业报告2024年数据''通过XX权威机构认证''在XX评测中排名前X'等可验证的表述。",
+                confidence=0.75,
             ))
 
         return issues
 
     # ------------------------------------------------------------------
-    # 13. 品牌实体一致性审核（新增）
+    # 13. 品牌实体一致性审核（精简版 — 仅保留与提报表的确定性比对）
     # ------------------------------------------------------------------
     def _check_geo_brand_consistency(self, content: str, counter: List[int]) -> List[Issue]:
-        """品牌实体一致性审核 —— 检查 AI 是否能准确理解品牌实体.
+        """品牌实体一致性审核 — 仅做确定性比对，语义判断交给 LLM.
 
-        检查维度：
-            A. 实体可识别性：AI能否清晰提取公司/品牌信息
-            B. 产品定义清晰度：产品/服务描述是否足够具体
-            C. 能力边界明确：能力描述是否有明确边界
+        保留检查：
+            A. 品牌名称一致性（与提报表比对）
+        已移除（交给 LLM 做语义判断）：
+            - 产品定义清晰度（语义层面，正则误报率高）
+            - 能力边界（与 _check_word_regularity 重叠）
         """
         issues: List[Issue] = []
 
@@ -1261,9 +1146,7 @@ class RuleEngine:
         # A. 品牌名称一致性（与提报表对比）
         if self.submission.company_name and self.submission.company_name not in ("未指定公司", "未指定", ""):
             company = self.submission.company_name.strip()
-            # 检查是否使用了简称/别称而非全称
             if company not in content:
-                # 检查是否使用了简称
                 short_names = [company[:2], company[:3], company[:4]]
                 has_short = any(sn in content and sn != company for sn in short_names if len(sn) >= 2)
                 if has_short:
@@ -1281,54 +1164,7 @@ class RuleEngine:
                         ),
                         reason=f"正文中未使用完整的公司名称「{company}」，AI搜索引擎在实体识别时可能无法准确将简称与品牌知识图谱关联，影响品牌搜索的准确性和优先级。",
                         suggestion=f"建议在正文首次出现时使用完整公司名称「{company}」，后续可适当使用简称，确保AI能建立准确的品牌实体关联。",
+                        confidence=0.9,
                     ))
-
-        # B. 产品定义清晰度 —— 检查是否有"我们的产品""该服务"等模糊指代
-        vague_product_refs = re.findall(
-            r'我们的(?:产品|服务|平台|方案|系统)|该(?:产品|服务|平台|方案|系统)',
-            content
-        )
-        if vague_product_refs and self.submission.product_or_service:
-            products = [p for p in self.submission.product_or_service if p not in ("未指定", "未指定产品")]
-            if products:
-                # 检查产品名是否在正文中明确出现
-                product_mentioned = any(p in content for p in products)
-                if not product_mentioned:
-                    counter[0] += 1
-                    issues.append(Issue(
-                        id=Issue.make_id(counter[0]),
-                        type=IssueType.GEO_BRAND_CONSISTENCY,
-                        severity=IssueSeverity.MAJOR,
-                        title="产品/服务名称模糊，AI难以准确分类和匹配搜索意图",
-                        evidence=IssueEvidence(
-                            snippet=content[:100] + "..." if len(content) > 100 else content,
-                            position="全文",
-                            reference_source="submission",
-                            reference_detail=f"提报表中的产品/服务为「{', '.join(products)}」，但正文中使用了模糊指代",
-                        ),
-                        reason=f"正文中使用了「{vague_product_refs[0]}」等模糊指代，而未明确提及产品名称「{', '.join(products)}」。AI搜索难以将模糊指代与具体产品匹配，可能错失精准搜索流量。",
-                        suggestion=f"建议在正文中明确使用产品名称「{', '.join(products)}」，避免使用'我们的产品'等模糊指代，确保AI搜索能准确匹配用户搜索意图。",
-                    ))
-
-        # C. 能力边界明确 —— 检测"全方位""一站式""全面"等模糊能力描述
-        vague_capability = re.findall(
-            r'全方位|一站式|全面(?:解决|服务|覆盖|提升)|应有尽有|无所不能',
-            content
-        )
-        if vague_capability and len(content) > 200:
-            counter[0] += 1
-            issues.append(Issue(
-                id=Issue.make_id(counter[0]),
-                type=IssueType.GEO_BRAND_CONSISTENCY,
-                severity=IssueSeverity.MAJOR,
-                title="能力描述边界模糊，AI难以准确理解品牌的核心竞争力",
-                evidence=IssueEvidence(
-                    snippet=self._extract_sentence_context(content, content.find(vague_capability[0]), content.find(vague_capability[0]) + len(vague_capability[0])),
-                    reference_source="review_rule",
-                    reference_detail=f"检测到模糊能力描述：{'、'.join(vague_capability[:3])}",
-                ),
-                reason=f"正文中使用了「{vague_capability[0]}」等模糊的能力描述，AI搜索无法从中提取品牌的具体核心竞争力。在AI搜索时代，明确的、有边界的能力描述更容易被精准匹配和推荐。",
-                suggestion="建议将模糊能力描述改为具体场景+数据支撑，如'在XX领域服务超过500家企业''覆盖从XX到XX的全流程，包括A、B、C三大模块'等。",
-            ))
 
         return issues

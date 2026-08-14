@@ -21,6 +21,7 @@ from geo_review.result.models import (
     ReferencesUsed,
     ReviewError,
     ReviewResponse,
+    ReviewScoreCard,
     ReviewStats,
     ReviewStatus,
     ReviewVerdict,
@@ -92,11 +93,28 @@ class ReviewResultBuilder:
     # ------ 设置数据 ------
 
     def add_rule_issues(self, issues: List[Issue]):
-        """添加规则引擎发现的问题."""
+        """添加规则引擎发现的问题（Detection: compliance 层）."""
+        for issue in issues:
+            if not issue.source:
+                issue.source = "rule_engine"
+            if not issue.detection_layer:
+                issue.detection_layer = "compliance"
         self._rule_issues = list(issues)
 
     def add_llm_issues(self, issues: List[Issue], llm_result=None):
-        """添加 LLM 语义审核发现的问题."""
+        """添加 LLM 语义审核发现的问题（Detection: factual / geo_quality 层）."""
+        for issue in issues:
+            if not issue.source:
+                issue.source = "llm_reviewer"
+            if not issue.detection_layer:
+                # GEO 类型问题归入 geo_quality 层，其余归入 factual
+                t = issue.type
+                if t in (IssueType.GEO_CITABILITY, IssueType.GEO_BRAND_CONSISTENCY):
+                    issue.detection_layer = "geo_quality"
+                elif t in (IssueType.UNSUPPORTED_CLAIM, IssueType.INCONSISTENT_WITH_WEBSITE):
+                    issue.detection_layer = "factual"
+                else:
+                    issue.detection_layer = "compliance"
         self._llm_issues = list(issues)
         self._llm_result = llm_result
 
@@ -175,6 +193,9 @@ class ReviewResultBuilder:
         # 修改清单
         checklist = self._build_checklist(all_issues)
 
+        # 评分卡
+        score_card = self._compute_score_card(all_issues)
+
         # 摘要
         summary = self._build_summary(all_issues, verdict, stats)
 
@@ -197,9 +218,77 @@ class ReviewResultBuilder:
             warnings=self._warnings,
             llm_review=self._llm_result,
             plan_summary=self._get_plan_summary(),
+            score_card=score_card,
             error=error,
             reviewed_at=beijing_now(),
             duration_ms=duration_ms,
+        )
+
+    # ------ 评分卡计算 ------
+
+    @staticmethod
+    def _compute_score_card(issues: List[Issue]) -> ReviewScoreCard:
+        """根据问题列表计算多维度评分卡.
+
+        评分逻辑：
+            - 每个维度满分100，按问题严重程度扣分
+            - CRITICAL: 扣15分, MAJOR: 扣8分, MINOR: 扣3分, INFO: 扣1分
+            - 最低不低于0
+        """
+        # 扣分权重
+        penalty = {
+            IssueSeverity.CRITICAL: 15,
+            IssueSeverity.MAJOR: 8,
+            IssueSeverity.MINOR: 3,
+            IssueSeverity.INFO: 1,
+        }
+
+        # 维度映射：问题类型 -> 评分维度
+        dimension_map = {
+            IssueType.INCONSISTENT_WITH_SUBMISSION: "factual_accuracy",
+            IssueType.INCONSISTENT_WITH_WEBSITE: "factual_accuracy",
+            IssueType.UNSUPPORTED_CLAIM: "factual_accuracy",
+            IssueType.EXAGGERATION: "compliance",
+            IssueType.COMPETITOR_DISPARAGEMENT: "compliance",
+            IssueType.SEMANTIC_RISK: "content_quality",
+            IssueType.TONE_ISSUE: "content_quality",
+            IssueType.GEO_CITABILITY: "geo_citability",
+            IssueType.GEO_BRAND_CONSISTENCY: "brand_consistency",
+        }
+
+        # 规则引擎问题（不含上述类型）默认归入 compliance
+        scores = {
+            "compliance": 100,
+            "factual_accuracy": 100,
+            "brand_consistency": 100,
+            "geo_citability": 100,
+            "content_quality": 100,
+        }
+
+        for issue in issues:
+            dim = dimension_map.get(issue.type, "compliance")
+            p = penalty.get(issue.severity, 1)
+            # 低置信度问题扣分减弱（confidence=0.4 的问题只扣40%的分）
+            effective_penalty = p * getattr(issue, 'confidence', 1.0)
+            scores[dim] = max(0, scores[dim] - effective_penalty)
+
+        # 综合评分 = 各维度加权平均
+        weights = {
+            "compliance": 0.25,
+            "factual_accuracy": 0.25,
+            "brand_consistency": 0.15,
+            "geo_citability": 0.20,
+            "content_quality": 0.15,
+        }
+        overall = int(sum(scores[k] * w for k, w in weights.items()))
+
+        return ReviewScoreCard(
+            overall=overall,
+            compliance=scores["compliance"],
+            factual_accuracy=scores["factual_accuracy"],
+            brand_consistency=scores["brand_consistency"],
+            geo_citability=scores["geo_citability"],
+            content_quality=scores["content_quality"],
         )
 
     # ------ 内部方法 ------

@@ -134,23 +134,22 @@ GENERAL_CONFIG = {
 # LLM 分类 Prompt
 # ------------------------------------------------------------------
 
-CLASSIFICATION_PROMPT = """你是一个内容分类专家。请分析以下文本，判断它属于哪种内容类型。
+CLASSIFICATION_PROMPT = """分析以下文本的内容类型，输出 JSON。
 
 ## 候选类型
-- finance: 金融广告、理财、保险、银行、投资相关
-- medical: 医疗健康、药品、保健品、医院相关
-- enterprise_intro: 企业介绍、品牌宣传、公司简介
-- news: 新闻稿、公关稿、媒体报道
-- technology: 科技产品、技术方案、软件/SaaS
+- finance: 金融/理财/保险/银行/投资
+- medical: 医疗/健康/药品/保健品
+- enterprise_intro: 企业介绍/品牌宣传
+- news: 新闻稿/公关稿/媒体报道
+- technology: 科技产品/技术方案/软件
 - general: 以上都不匹配
 
 ## 输出格式
-严格输出 JSON:
-{
+{{
   "task_type": "finance",
   "confidence": 0.85,
-  "reason": "文本主要涉及理财产品推荐和收益率说明，属于金融类内容"
-}
+  "reason": "分类理由"
+}}
 
 ## 待分类文本
 {content}
@@ -158,7 +157,7 @@ CLASSIFICATION_PROMPT = """你是一个内容分类专家。请分析以下文�
 ## 提报表参考
 {context}
 
-只输出 JSON，不要任何额外解释。"""
+只输出 JSON。"""
 
 
 # ------------------------------------------------------------------

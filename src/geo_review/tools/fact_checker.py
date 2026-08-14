@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from geo_review.llm.client import LLMClient
 from geo_review.rules.issues import Issue, IssueEvidence, IssueSeverity, IssueType
+from geo_review.tools.evidence_store import EvidenceStore
 from geo_review.tools.web_search import SearchResult, WebSearchTool, WebSearchConfig
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,10 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class FactCheckResult:
-    """单条声明核查结果."""
+    """单条声明核查结果 — 证据链模型.
+
+    证据链：Claim → Evidence → Source → Authority → Entailment → Verdict
+    """
     claim: str = ""
     verdict: str = "unknown"  # verified / refuted / unverifiable / unknown
     confidence: float = 0.0
@@ -40,31 +44,30 @@ class FactCheckResult:
     search_urls: List[str] = field(default_factory=list)
     reason: str = ""
     suggestion: str = ""
+    # 证据链增强字段
+    evidence_text: str = ""          # 搜索结果中支持/反驳声明的关键证据文本
+    source_type: str = ""            # 来源类型: official_website / authoritative_media / third_party / unknown
+    source_authority: str = ""       # 来源权威性: high / medium / low / unknown
+    entailment: str = ""             # 证据与声明的蕴含关系: supports / refutes / neutral / contradictory
 
 
 # ====================================================================
 # Prompt 模板
 # ====================================================================
 
-CLAIM_EXTRACTION_PROMPT = """你是一个事实声明提取专家。请从以下正文中提取所有需要联网核实的事实性声明。
+CLAIM_EXTRACTION_PROMPT = """从以下正文中提取所有需要联网核实的事实性声明。
 
-事实性声明是指可以用公开信息验证的具体断言，包括但不限于：
-- 排名/奖项类：如"连续5年入选期货服务行业五百强"、"荣获XX奖"
-- 数据/统计类：如"市场占有率达30%"、"服务超过100万用户"
-- 资质/认证类：如"通过ISO9001认证"、"获得XX牌照"
-- 历史事实类：如"成立于2015年"、"2023年上市"
-- 合作关系类：如"与XX银行达成战略合作"
-- 行业地位类：如"行业领先"、"国内最大的XX平台"
-
-注意：
-- 不要提取主观评价（如"优质服务"）或无法验证的泛泛表述
-- 不要提取纯常识性陈述
-- 每条声明应尽量精简，保留关键可验证要素
-- 最多提取10条最重要的事实声明
+事实性声明是指可以用公开信息验证的具体断言，例如：
+- 排名/奖项类："连续5年入选期货服务行业五百强"
+- 数据/统计类："市场占有率达30%""服务超过100万用户"
+- 资质/认证类："通过ISO9001认证"
+- 历史事实类："成立于2015年""2023年上市"
+- 合作关系类："与XX银行达成战略合作"
+- 行业地位类："国内最大的XX平台"
 
 公司名称（如有）：{company_name}
 
-请以 JSON 格式输出，格式如下：
+以 JSON 格式输出，最多提取10条最重要的声明：
 {{
   "claims": [
     "声明1的原文表述",
@@ -73,7 +76,7 @@ CLAIM_EXTRACTION_PROMPT = """你是一个事实声明提取专家。请从以下
 }}"""
 
 
-CLAIM_VERIFICATION_PROMPT = """你是一个事实核查专家。请基于联网搜索结果，验证以下事实声明的真实性。
+CLAIM_VERIFICATION_PROMPT = """基于联网搜索结果，验证以下事实声明的真实性。
 
 【待验证声明】
 {claim}
@@ -87,24 +90,22 @@ CLAIM_VERIFICATION_PROMPT = """你是一个事实核查专家。请基于联网�
 【联网搜索结果】
 {search_results}
 
-请根据搜索结果判断该声明的真实性。判断标准：
-- verified（已证实）：搜索结果中有明确证据支持该声明
-- refuted（已证伪）：搜索结果中有明确证据反驳该声明，或证明声明内容与事实不符
-- unverifiable（无法验证）：搜索结果中没有找到相关证据，无法确认也无法否定
-- partially_verified（部分证实）：声明部分内容可证实，但有关键信息无法核实或存在偏差
+判断标准：
+- verified（已证实）：搜索结果有明确证据支持该声明
+- refuted（已证伪）：搜索结果有明确证据反驳该声明
+- unverifiable（无法验证）：搜索结果未找到相关证据
+- partially_verified（部分证实）：部分内容可证实，但关键信息无法核实或存在偏差
 
-注意事项：
-- 严格基于搜索结果判断，不要凭自身知识臆断
-- 如果声明包含具体数字、年份、排名等，需在搜索结果中找到精确对应
-- 公司名与声明主体必须一致，张冠李戴的视为 refuted
-- 搜索结果可能包含广告或无关内容，需甄别
-
-请以 JSON 格式输出：
+以 JSON 格式输出：
 {{
   "verdict": "verified|refuted|unverifiable|partially_verified",
   "confidence": 0.0-1.0,
   "reason": "判断理由，引用搜索结果中的关键信息",
-  "suggestion": "如果声明有问题，给出修改建议；如果声明正确，返回空字符串"
+  "suggestion": "如果声明有问题给出修改建议，否则返回空字符串",
+  "evidence_text": "搜索结果中支持或反驳该声明的关键证据原文",
+  "source_type": "official_website|authoritative_media|third_party|unknown",
+  "source_authority": "high|medium|low|unknown",
+  "entailment": "supports|refutes|neutral|contradictory"
 }}"""
 
 
@@ -134,6 +135,7 @@ class FactChecker:
         content: str,
         company_name: str = "",
         starting_id: int = 20001,
+        evidence_store: Optional[EvidenceStore] = None,
     ) -> Tuple[List[Issue], List[FactCheckResult]]:
         """执行联网事实核查.
 
@@ -141,6 +143,7 @@ class FactChecker:
             content: 正文文本
             company_name: 公司名称（用于精确搜索）
             starting_id: 问题 ID 起始编号
+            evidence_store: 官网结构化证据（可选），作为优先证据来源
 
         Returns:
             (审核问题列表, 核查结果详情列表)
@@ -162,7 +165,7 @@ class FactChecker:
         # Step 2 & 3: 逐条搜索并验证
         all_results: List[FactCheckResult] = []
         for claim in claims[:self.max_claims]:
-            result = self._verify_claim(claim, content, company_name)
+            result = self._verify_claim(claim, content, company_name, evidence_store)
             all_results.append(result)
 
         # 生成审核问题
@@ -191,7 +194,7 @@ class FactChecker:
         )
 
         messages = [
-            {"role": "system", "content": "你是事实声明提取专家，只输出JSON。"},
+            {"role": "system", "content": "从正文中提取可联网验证的事实性声明，只输出JSON。"},
             {"role": "user", "content": f"{prompt}\n\n【正文】\n{truncated}"},
         ]
 
@@ -211,13 +214,15 @@ class FactChecker:
         claim: str,
         content: str,
         company_name: str,
+        evidence_store: Optional[EvidenceStore] = None,
     ) -> FactCheckResult:
-        """对单条声明执行联网搜索 + LLM 验证.
+        """对单条声明执行证据核查 + LLM 验证.
 
-        搜索策略：
-        1. 构造多个搜索查询（完整声明、关键词提取、公司名+关键词）
-        2. 逐一搜索并合并去重结果
-        3. 如搜索结果中有高相关 URL，尝试抓取页面内容补充信息
+        证据优先级：
+        1. 官网结构化证据（EvidenceStore）— 权威性高，先查
+        2. 联网搜索 — 补充官网未覆盖的声明
+
+        如果官网证据已明确支持/反驳声明，跳过联网搜索以节省时间。
         """
         result = FactCheckResult(claim=claim)
 
@@ -225,6 +230,42 @@ class FactChecker:
         snippet = self._find_snippet(content, claim)
         result.snippet = snippet
 
+        # === 优先检查官网结构化证据 ===
+        if evidence_store:
+            ev = evidence_store.get_evidence_for_claim(claim)
+            if ev:
+                # 官网找到了相关证据
+                result.evidence_text = ev.evidence_text
+                result.source_type = ev.source_type
+                result.source_authority = ev.authority
+
+                entailment = ev.entailment
+                result.entailment = entailment
+
+                if entailment == "supports":
+                    # 官网明确支持该声明 → 直接标记为已证实，跳过联网搜索
+                    result.verdict = "verified"
+                    result.confidence = 0.85
+                    result.reason = f"官网信息支持该声明：{ev.evidence_text[:200]}"
+                    result.search_evidence = f"[官网证据] {ev.evidence_text}"
+                    if ev.source_url:
+                        result.search_urls = [ev.source_url]
+                    logger.info(f"FactChecker: 声明「{claim[:30]}...」由官网证据支持，跳过联网搜索")
+                    return result
+                elif entailment == "refutes":
+                    # 官网证据反驳该声明
+                    result.verdict = "refuted"
+                    result.confidence = 0.7
+                    result.reason = f"官网信息与该声明不符：{ev.evidence_text[:200]}"
+                    result.suggestion = f"请核实该声明，官网信息显示：{ev.evidence_text[:100]}"
+                    result.search_evidence = f"[官网证据] {ev.evidence_text}"
+                    if ev.source_url:
+                        result.search_urls = [ev.source_url]
+                    logger.info(f"FactChecker: 声明「{claim[:30]}...」被官网证据反驳，跳过联网搜索")
+                    return result
+                # entailment == "neutral" → 继续联网搜索
+
+        # === 联网搜索验证（官网证据不足或无官网证据时）===
         # 构造多个搜索查询
         search_queries = self._build_search_queries(claim, company_name)
 
@@ -259,6 +300,17 @@ class FactChecker:
         # 格式化搜索结果供 LLM 参考
         search_text_parts = []
         search_urls = []
+
+        # 如果有官网证据但未明确判定，作为补充上下文传给 LLM
+        if evidence_store:
+            ev = evidence_store.get_evidence_for_claim(claim)
+            if ev and ev.evidence_text:
+                search_text_parts.append(
+                    f"[官网] 摘要: {ev.evidence_text[:300]}\n    来源: {ev.source_url or '官网'}"
+                )
+                if ev.source_url:
+                    search_urls.append(ev.source_url)
+
         for i, sr in enumerate(search_results, 1):
             search_text_parts.append(
                 f"[{i}] 标题: {sr.title}\n    摘要: {sr.snippet}\n    来源: {sr.url}"
@@ -291,6 +343,11 @@ class FactChecker:
             result.confidence = float(data.get("confidence", 0.0))
             result.reason = data.get("reason", "")
             result.suggestion = data.get("suggestion", "")
+            # 证据链增强字段
+            result.evidence_text = data.get("evidence_text", "")
+            result.source_type = data.get("source_type", "unknown")
+            result.source_authority = data.get("source_authority", "unknown")
+            result.entailment = data.get("entailment", "neutral")
 
             # 无法验证时也给出建议
             if result.verdict == "unverifiable" and not result.suggestion:

@@ -30,6 +30,35 @@ class ReviewVerdict(str, Enum):
     REJECT = "reject"
 
 
+class ReviewScoreCard(BaseModel):
+    """审核评分卡 — 多维度评分体系.
+
+    维度：
+        - compliance: 合规性（禁用词、联系方式、绝对化用语等规则合规）
+        - factual_accuracy: 事实准确性（事实核查、官网一致性）
+        - brand_consistency: 品牌一致性（品牌实体、产品描述一致性）
+        - geo_citability: GEO可引用性（实体明确性、来源权威性、结构化程度）
+        - content_quality: 内容质量（语句通顺、信息完整度）
+    """
+    overall: int = Field(default=0, ge=0, le=100, description="综合评分 0-100")
+    compliance: int = Field(default=100, ge=0, le=100, description="合规性评分")
+    factual_accuracy: int = Field(default=100, ge=0, le=100, description="事实准确性评分")
+    brand_consistency: int = Field(default=100, ge=0, le=100, description="品牌一致性评分")
+    geo_citability: int = Field(default=100, ge=0, le=100, description="GEO可引用性评分")
+    content_quality: int = Field(default=100, ge=0, le=100, description="内容质量评分")
+
+    def to_dict(self) -> Dict[str, Any]:
+        """转为字典."""
+        return {
+            "overall": self.overall,
+            "compliance": self.compliance,
+            "factual_accuracy": self.factual_accuracy,
+            "brand_consistency": self.brand_consistency,
+            "geo_citability": self.geo_citability,
+            "content_quality": self.content_quality,
+        }
+
+
 class ReviewStats(BaseModel):
     """问题统计."""
     total: int = 0
@@ -102,6 +131,8 @@ class ReviewResponse(BaseModel):
     warnings: List[ReviewWarning] = Field(default_factory=list)
     llm_review: Optional[Any] = Field(default=None, description="LLM语义审核结果")
     plan_summary: Optional[Dict[str, Any]] = Field(default=None, description="TaskPlanner审核计划摘要")
+    score_card: Optional[ReviewScoreCard] = Field(default=None, description="审核评分卡（多维度评分）")
+    human_review: Optional[Dict[str, Any]] = Field(default=None, description="人工复核状态")
     error: Optional[ReviewError] = None
     reviewed_at: datetime = Field(default_factory=beijing_now)
     duration_ms: int = Field(default=0, ge=0)

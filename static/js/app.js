@@ -1733,6 +1733,12 @@ const Pages = {
                                                 <div class="mt-sm" style="display:flex;flex-direction:column;gap:8px;">
                                                     ${factCheckIssues.map(i => {
                                                         const sev = verdictMap[(i.severity === 'critical' ? 'refuted' : (i.severity === 'major' ? 'unverifiable' : 'unknown'))] || { label: '未知', color: '#999', icon: '❓' };
+                                                        const sourceTypeMap = { official_website: '官方官网', authoritative_media: '权威媒体', third_party: '第三方来源', unknown: '未知来源' };
+                                                        const authorityMap = { high: '高', medium: '中', low: '低', unknown: '未知' };
+                                                        const entailmentMap = { supports: '✅ 支持', refutes: '❌ 反驳', neutral: '⚪ 中立', contradictory: '⚡ 矛盾' };
+                                                        const st = i.evidence?.source_type || i.source_type || 'unknown';
+                                                        const sa = i.evidence?.source_authority || i.source_authority || 'unknown';
+                                                        const et = i.evidence?.entailment || i.entailment || 'neutral';
                                                         return `
                                                         <div style="padding:10px 14px;background:${i.severity === 'critical' ? '#fef2f2' : '#fffbeb'};border-radius:8px;border-left:4px solid ${i.severity === 'critical' ? '#dc2626' : '#f59e0b'};">
                                                             <div class="text-sm" style="font-weight:600;color:${i.severity === 'critical' ? '#dc2626' : '#b45309'};">
@@ -1740,6 +1746,12 @@ const Pages = {
                                                             </div>
                                                             ${(i.evidence && i.evidence.snippet) ? `<div class="text-sm text-secondary mt-xs" style="padding:4px 8px;background:rgba(0,0,0,0.03);border-radius:4px;">原文: "${UI.escapeHtml(i.evidence.snippet.substring(0, 120))}"</div>` : ''}
                                                             ${i.reason ? `<div class="text-sm mt-xs" style="color:#374151;">🔎 ${UI.escapeHtml(i.reason.substring(0, 300))}</div>` : ''}
+                                                            <!-- 证据链 -->
+                                                            <div class="text-sm mt-xs" style="display:flex;gap:6px;flex-wrap:wrap;">
+                                                                <span style="padding:2px 8px;background:#e0f2fe;border-radius:4px;color:#0369a1;">来源: ${sourceTypeMap[st] || st}</span>
+                                                                <span style="padding:2px 8px;background:#f0fdf4;border-radius:4px;color:#15803d;">权威性: ${authorityMap[sa] || sa}</span>
+                                                                <span style="padding:2px 8px;background:#fef3c7;border-radius:4px;color:#854d0e;">${entailmentMap[et] || et}</span>
+                                                            </div>
                                                             ${i.suggestion ? `<div class="text-sm mt-xs" style="color:#3b82f6;">💡 ${UI.escapeHtml(i.suggestion.substring(0, 200))}</div>` : ''}
                                                             ${i.evidence && i.evidence.source_url ? `<div class="text-sm mt-xs"><a href="${i.evidence.source_url}" target="_blank" style="color:#3b82f6;">📎 搜索来源</a></div>` : ''}
                                                         </div>
@@ -1760,6 +1772,50 @@ const Pages = {
                             ${UI.escapeHtml(result.summary || '无摘要')}
                         </div>
                     </div>
+
+                    <!-- 审核评分卡 -->
+                    ${result.score_card ? (() => {
+                        const sc = result.score_card;
+                        const dims = [
+                            { key: 'compliance', label: '合规性', icon: '🛡️', color: '#3b82f6' },
+                            { key: 'factual_accuracy', label: '事实准确性', icon: '🔍', color: '#10b981' },
+                            { key: 'brand_consistency', label: '品牌一致性', icon: '🏷️', color: '#8b5cf6' },
+                            { key: 'geo_citability', label: 'GEO可引用性', icon: '📎', color: '#f59e0b' },
+                            { key: 'content_quality', label: '内容质量', icon: '📝', color: '#ec4899' },
+                        ];
+                        const overallColor = sc.overall >= 80 ? '#10b981' : sc.overall >= 60 ? '#f59e0b' : '#dc2626';
+                        const overallLabel = sc.overall >= 80 ? '良好' : sc.overall >= 60 ? '需改善' : '风险较高';
+                        return `
+                            <div class="score-card-section" style="margin:16px 0;padding:20px;background:linear-gradient(135deg,#f8fafc,#f1f5f9);border-radius:12px;border:1px solid #e2e8f0;">
+                                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+                                    <div style="font-size:16px;font-weight:600;color:#1e293b;">📊 审核评分卡</div>
+                                    <div style="display:flex;align-items:center;gap:12px;">
+                                        <div style="text-align:center;">
+                                            <div style="font-size:32px;font-weight:700;color:${overallColor};line-height:1;">${sc.overall}</div>
+                                            <div style="font-size:12px;color:#64748b;">/ 100</div>
+                                        </div>
+                                        <div style="padding:4px 12px;border-radius:20px;background:${overallColor}20;color:${overallColor};font-size:13px;font-weight:600;">${overallLabel}</div>
+                                    </div>
+                                </div>
+                                <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;">
+                                    ${dims.map(d => {
+                                        const val = sc[d.key] || 0;
+                                        const barColor = val >= 80 ? '#10b981' : val >= 60 ? '#f59e0b' : '#dc2626';
+                                        return `
+                                            <div style="text-align:center;">
+                                                <div style="font-size:20px;margin-bottom:4px;">${d.icon}</div>
+                                                <div style="font-size:12px;color:#64748b;margin-bottom:6px;">${d.label}</div>
+                                                <div style="position:relative;height:8px;background:#e2e8f0;border-radius:4px;overflow:hidden;margin-bottom:4px;">
+                                                    <div style="position:absolute;left:0;top:0;height:100%;width:${val}%;background:${barColor};border-radius:4px;transition:width 0.6s ease;"></div>
+                                                </div>
+                                                <div style="font-size:16px;font-weight:600;color:${barColor};">${val}</div>
+                                            </div>
+                                        `;
+                                    }).join('')}
+                                </div>
+                            </div>
+                        `;
+                    })() : ''}
 
                     <!-- 统计 -->
                     <div class="d-flex gap-md mb-md" style="flex-wrap:wrap;">
@@ -1811,6 +1867,7 @@ const Pages = {
                                                 <span class="text-bold" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${idx + 1}. ${UI.escapeHtml(issue.title || '未命名问题')}</span>
                                                 ${UI.severityBadge(issue.severity)}
                                                 <span class="badge badge-default" style="flex-shrink:0;">${UI.issueTypeText(issue.type)}</span>
+                                                ${issue.source ? `<span class="badge" style="flex-shrink:0;font-size:11px;background:${({rule_engine:'#e0f2fe',llm_reviewer:'#f0fdf4',fact_checker:'#fef3c7'})[issue.source] || '#f1f5f9'};color:${({rule_engine:'#0369a1',llm_reviewer:'#15803d',fact_checker:'#854d0e'})[issue.source] || '#475569'};">${({rule_engine:'规则',llm_reviewer:'LLM',fact_checker:'核查'})[issue.source] || issue.source}</span>` : ''}
                                             </div>
                                         </div>
                                     </div>
@@ -1857,6 +1914,36 @@ const Pages = {
                             <ol style="list-style:decimal;padding-left:20px;">
                                 ${result.revision_checklist.map(item => `<li style="margin-bottom:8px;line-height:1.6;">${UI.escapeHtml(item)}</li>`).join('')}
                             </ol>
+                        </div>
+                    ` : ''}
+
+                    <!-- 人工复核闭环 -->
+                    ${result.review_id ? `
+                        <div class="human-review-section" style="margin:20px 0;padding:20px;background:#f8fafc;border-radius:12px;border:1px solid #e2e8f0;">
+                            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+                                <div style="font-size:16px;font-weight:600;color:#1e293b;">👤 人工复核</div>
+                                ${result.human_review ? `<span class="badge ${result.human_review.status === 'confirmed' ? 'badge-success' : result.human_review.status === 'false_positive' ? 'badge-warning' : 'badge-default'}">${({confirmed:'已确认',rejected:'已驳回',false_positive:'误报标记',revised:'已修改'})[result.human_review.status] || result.human_review.status}</span>` : ''}
+                            </div>
+                            ${result.human_review ? `
+                                <div style="margin-bottom:12px;padding:10px;background:#fff;border-radius:8px;font-size:14px;">
+                                    ${result.human_review.reviewer ? `<div class="text-sm text-secondary">复核人: ${UI.escapeHtml(result.human_review.reviewer)}</div>` : ''}
+                                    ${result.human_review.comment ? `<div class="text-sm mt-sm" style="color:#374151;">备注: ${UI.escapeHtml(result.human_review.comment)}</div>` : ''}
+                                    ${result.human_review.reviewed_at ? `<div class="text-sm text-secondary mt-sm">复核时间: ${UI.formatDate(result.human_review.reviewed_at)}</div>` : ''}
+                                </div>
+                            ` : ''}
+                            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                                <button class="btn btn-sm btn-success" id="hr-confirm-btn" ${result.human_review?.status === 'confirmed' ? 'disabled' : ''}>✅ 确认问题</button>
+                                <button class="btn btn-sm btn-warning" id="hr-falsepos-btn" ${result.human_review?.status === 'false_positive' ? 'disabled' : ''}>⚠️ 标记误报</button>
+                                <button class="btn btn-sm btn-secondary" id="hr-revise-btn" ${result.human_review?.status === 'revised' ? 'disabled' : ''}>📝 已修改</button>
+                                <button class="btn btn-sm btn-danger" id="hr-reject-btn" ${result.human_review?.status === 'rejected' ? 'disabled' : ''}>❌ 驳回</button>
+                            </div>
+                            <div id="hr-comment-area" style="display:none;margin-top:12px;">
+                                <textarea id="hr-comment-input" class="form-control" rows="2" placeholder="复核备注（可选）..." style="width:100%;font-size:14px;"></textarea>
+                                <div style="display:flex;gap:8px;margin-top:8px;">
+                                    <button class="btn btn-sm btn-primary" id="hr-submit-btn">提交复核</button>
+                                    <button class="btn btn-sm btn-secondary" id="hr-cancel-btn">取消</button>
+                                </div>
+                            </div>
                         </div>
                     ` : ''}
 
@@ -1999,8 +2086,87 @@ const Pages = {
             });
         }
 
+        // 绑定人工复核按钮
+        this._bindHumanReview(result);
+
         // 滚动到结果区域
         area.scrollIntoView({ behavior: 'smooth' });
+    },
+
+    /**
+     * 绑定人工复核按钮事件
+     */
+    _bindHumanReview(result) {
+        const reviewId = result.review_id;
+        if (!reviewId) return;
+
+        let pendingStatus = '';
+
+        const showCommentArea = (status) => {
+            pendingStatus = status;
+            const area = document.getElementById('hr-comment-area');
+            if (area) area.style.display = 'block';
+        };
+
+        const btnMap = {
+            'hr-confirm-btn': 'confirmed',
+            'hr-falsepos-btn': 'false_positive',
+            'hr-revise-btn': 'revised',
+            'hr-reject-btn': 'rejected',
+        };
+
+        Object.entries(btnMap).forEach(([btnId, status]) => {
+            const btn = document.getElementById(btnId);
+            if (btn && !btn.disabled) {
+                btn.addEventListener('click', () => showCommentArea(status));
+            }
+        });
+
+        const cancelBtn = document.getElementById('hr-cancel-btn');
+        if (cancelBtn) {
+            cancelBtn.addEventListener('click', () => {
+                const area = document.getElementById('hr-comment-area');
+                if (area) area.style.display = 'none';
+                const input = document.getElementById('hr-comment-input');
+                if (input) input.value = '';
+            });
+        }
+
+        const submitBtn = document.getElementById('hr-submit-btn');
+        if (submitBtn) {
+            submitBtn.addEventListener('click', async () => {
+                const comment = document.getElementById('hr-comment-input')?.value || '';
+                try {
+                    const resp = await fetch(`/api/v1/history/${reviewId}/human-review`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            status: pendingStatus,
+                            reviewer: '',
+                            comment: comment,
+                            issue_actions: {},
+                        }),
+                    });
+                    if (resp.ok) {
+                        UI.toast('人工复核已提交', 'success');
+                        const area = document.getElementById('hr-comment-area');
+                        if (area) area.style.display = 'none';
+                        // 更新按钮状态
+                        Object.values(btnMap).forEach(s => {
+                            const btnIds = Object.keys(btnMap).filter(k => btnMap[k] === s);
+                            btnIds.forEach(id => {
+                                const btn = document.getElementById(id);
+                                if (btn) btn.disabled = (s === pendingStatus);
+                            });
+                        });
+                    } else {
+                        UI.toast('提交失败，请重试', 'error');
+                    }
+                } catch (e) {
+                    UI.toast('网络错误，请重试', 'error');
+                }
+            });
+        }
     },
 
     /**
@@ -2034,6 +2200,19 @@ const Pages = {
         lines.push('【审核摘要】');
         lines.push(result.summary || '无摘要');
         lines.push('');
+
+        // 评分卡
+        if (result.score_card) {
+            lines.push('───────────────────────────────────────');
+            lines.push('【审核评分卡】');
+            lines.push(`综合评分: ${result.score_card.overall} / 100`);
+            lines.push(`合规性: ${result.score_card.compliance}`);
+            lines.push(`事实准确性: ${result.score_card.factual_accuracy}`);
+            lines.push(`品牌一致性: ${result.score_card.brand_consistency}`);
+            lines.push(`GEO可引用性: ${result.score_card.geo_citability}`);
+            lines.push(`内容质量: ${result.score_card.content_quality}`);
+            lines.push('');
+        }
 
         // 统计
         const stats = result.stats || {};
@@ -2126,6 +2305,20 @@ const Pages = {
         md += `> **审核结论**: ${verdictMap[result.verdict] || result.verdict || '未知'}\n`;
         if (result.duration_ms) md += `> **耗时**: ${(result.duration_ms / 1000).toFixed(1)} 秒\n`;
         md += `\n`;
+
+        md += `## 📋 审核摘要\n\n${result.summary || '无摘要'}\n\n`;
+
+        // 评分卡
+        if (result.score_card) {
+            md += `## 📊 审核评分卡\n\n`;
+            md += `| 维度 | 评分 |\n|------|------|\n`;
+            md += `| **综合评分** | **${result.score_card.overall} / 100** |\n`;
+            md += `| 合规性 | ${result.score_card.compliance} |\n`;
+            md += `| 事实准确性 | ${result.score_card.factual_accuracy} |\n`;
+            md += `| 品牌一致性 | ${result.score_card.brand_consistency} |\n`;
+            md += `| GEO可引用性 | ${result.score_card.geo_citability} |\n`;
+            md += `| 内容质量 | ${result.score_card.content_quality} |\n\n`;
+        }
 
         md += `## 📊 问题统计\n\n`;
         md += `| 严重程度 | 数量 |\n|----------|------|\n`;

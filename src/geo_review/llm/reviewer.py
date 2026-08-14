@@ -43,6 +43,7 @@ class LLMReviewer:
         website_data: Optional[CrawledDomain] = None,
         industry_context: str = "",
         prompt_profile: str = "general",
+        evidence_context: str = "",
     ) -> LLMReviewResult:
         """对正文执行 LLM 语义审核.
 
@@ -52,6 +53,7 @@ class LLMReviewer:
             website_data: 官网爬取数据（可选）
             industry_context: 行业知识库上下文（可选）
             prompt_profile: prompt 模板 profile（general/finance/medical/...）
+            evidence_context: 官网结构化证据上下文（可选），替代原始爬取文本送入 LLM
 
         Returns:
             LLMReviewResult: 结构化审核结果
@@ -63,9 +65,14 @@ class LLMReviewer:
                 error="LLM_CLIENT_NOT_CONFIGURED",
             )
 
-        # ✅ 优化：官网文本智能截断（基于关键词相关性提取）
+        # 优先使用结构化证据上下文，回退到原始爬取文本智能提取
         website_text = ""
-        if website_data and website_data.pages:
+        if evidence_context:
+            # 结构化证据已由 EvidenceStore.to_llm_context() 生成
+            website_text = evidence_context
+            logger.debug(f"LLM 审核：使用结构化证据上下文 ({len(website_text)} 字符)")
+        elif website_data and website_data.pages:
+            # 回退：从原始爬取文本中智能提取
             website_text = self._extract_website_summary(website_data, submission)
 
         # 构建 messages（支持动态 prompt 注入）

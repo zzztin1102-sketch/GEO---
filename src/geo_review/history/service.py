@@ -296,6 +296,52 @@ class HistoryService:
 
             return result.rowcount > 0
 
+    async def update_human_review(
+        self, review_id: str, human_review_data: Dict[str, Any]
+    ) -> bool:
+        """保存人工复核结果.
+
+        Args:
+            review_id: 审核记录ID
+            human_review_data: 人工复核数据，包含:
+                - status: confirmed / rejected / false_positive / revised
+                - reviewer: 复核人
+                - comment: 复核备注
+                - issue_actions: 各问题的处理动作 {issue_id: action}
+        """
+        async with self.async_session() as session:
+            # 读取现有记录
+            stmt = select(ReviewHistory).where(
+                ReviewHistory.review_id == review_id,
+                ReviewHistory.is_deleted == False,
+            )
+            result = await session.execute(stmt)
+            history = result.scalar_one_or_none()
+            if not history:
+                return False
+
+            # 合并人工复核数据到 result_data
+            import json as _json
+            result_data = _json.loads(history.result_data) if isinstance(history.result_data, str) else (history.result_data or {})
+            result_data["human_review"] = {
+                "status": human_review_data.get("status", "pending"),
+                "reviewer": human_review_data.get("reviewer", ""),
+                "comment": human_review_data.get("comment", ""),
+                "issue_actions": human_review_data.get("issue_actions", {}),
+                "reviewed_at": beijing_now().isoformat(),
+            }
+
+            # 更新记录
+            update_stmt = update(ReviewHistory).where(
+                ReviewHistory.review_id == review_id,
+            ).values(
+                result_data=_json.dumps(result_data, ensure_ascii=False),
+                updated_at=beijing_now(),
+            )
+            await session.execute(update_stmt)
+            await session.commit()
+            return True
+
     async def batch_delete(self, review_ids: List[str]) -> int:
         """批量软删除审核记录."""
         async with self.async_session() as session:

@@ -27,6 +27,7 @@ from geo_review.llm.client import LLMClient
 from geo_review.llm.models import LLMProviderConfig
 from geo_review.llm.reviewer import LLMReviewer
 from geo_review.models import Submission
+from geo_review.tools.evidence_store import EvidenceStore, extract_evidence
 from geo_review.tools.fact_checker import FactChecker, FactCheckResult
 from geo_review.tools.web_search import WebSearchConfig, WebSearchTool
 from geo_review.parsers.content import ContentParser
@@ -220,11 +221,10 @@ class ReviewAgent:
         official_urls = request.get_all_official_urls()
         options = request.options or ReviewOptions()
 
-        # 如果 plan 建议爬取且用户没有明确关闭，则爬取
-        should_crawl = options.crawl_official_urls
-        if plan.crawl_official_urls and not options.crawl_official_urls:
-            # plan 建议爬取但用户未开启，以用户设置为准
-            pass
+        # Plan → Act: TaskPlanner 的决策驱动执行
+        # 如果 plan 建议爬取，自动启用爬取（除非用户明确关闭 use_llm=False 的极端场景）
+        # 修复 ChatGPT 指出的 "Planning → Execution 没完全打通" 问题
+        should_crawl = options.crawl_official_urls or plan.crawl_official_urls
 
         if should_crawl and official_urls:
             try:
@@ -240,6 +240,20 @@ class ReviewAgent:
                 )
 
         builder.set_website_info(crawled, official_urls, failed_urls)
+
+        # 4.6. 从官网爬取结果中提取结构化证据（EvidenceStore）
+        evidence_store: Optional[EvidenceStore] = None
+        if crawled and crawled.success_pages > 0:
+            try:
+                company_name = submission.company_name if submission else ""
+                evidence_store = extract_evidence(crawled, company_name)
+                logger.info(
+                    f"EvidenceStore: 提取完成 — 公司={evidence_store.company_full_name or '未知'}, "
+                    f"产品={len(evidence_store.products)}个, 认证={len(evidence_store.certifications)}个, "
+                    f"关键事实={len(evidence_store.company_facts) + len(evidence_store.product_facts) + len(evidence_store.key_data)}条"
+                )
+            except Exception as e:
+                logger.warning(f"EvidenceStore: 提取失败（回退到原始文本模式）: {e}")
 
         # 5. 加载规则（根据 plan 选择规则模板）
         try:
@@ -272,7 +286,8 @@ class ReviewAgent:
                 return ([], None), None
             try:
                 return self._run_llm_reviewer(
-                    content_text, submission, crawled, 10000, active_industry_kb, plan.prompt_profile
+                    content_text, submission, crawled, 10000, active_industry_kb, plan.prompt_profile,
+                    evidence_store=evidence_store,
                 ), None
             except Exception as e:
                 return ([], None), e
@@ -286,6 +301,7 @@ class ReviewAgent:
                     content=content_text,
                     company_name=company,
                     starting_id=20001,
+                    evidence_store=evidence_store,
                 )
                 return (issues, results), None
             except Exception as e:
@@ -326,6 +342,9 @@ class ReviewAgent:
         builder.add_llm_issues(llm_issues, llm_result)
         # 联网核查问题作为 LLM 问题的一部分加入（类型为 unsupported_claim）
         if fact_check_issues:
+            for issue in fact_check_issues:
+                issue.source = "fact_checker"
+                issue.detection_layer = "factual"
             builder.add_llm_issues(fact_check_issues, None)
 
         # 8. 构建最终响应
@@ -596,11 +615,13 @@ class ReviewAgent:
         starting_id: int,
         industry_kb: Optional[Any] = None,
         prompt_profile: str = "general",
+        evidence_store: Optional[EvidenceStore] = None,
     ) -> tuple:
         """运行 LLM 语义审核.
 
         Args:
             prompt_profile: prompt 模板 profile（general/finance/medical/...）
+            evidence_store: 官网结构化证据（可选），替代原始文本送入 LLM
 
         Returns:
             (issues列表, llm_result对象)
@@ -612,10 +633,17 @@ class ReviewAgent:
         if industry_kb:
             industry_context = industry_kb.build_llm_context()
 
+        # 优先使用结构化证据上下文，回退到原始爬取文本
+        evidence_context = ""
+        if evidence_store:
+            evidence_context = evidence_store.to_llm_context(max_chars=3000)
+            logger.debug(f"LLM 审核：使用结构化证据上下文 ({len(evidence_context)} 字符)")
+        
         result = self.llm_reviewer.review(
             content, submission, website_data=website,
             industry_context=industry_context,
             prompt_profile=prompt_profile,
+            evidence_context=evidence_context,
         )
         if result.error:
             return [], result
