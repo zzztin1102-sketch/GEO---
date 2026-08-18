@@ -5,14 +5,16 @@ import base64
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 
 from geo_review.agent.models import BatchProgress
 from geo_review.agent import BatchReviewRequest
 from geo_review.parsers.url_fetcher import URLDocumentFetcher
 from geo_review.middleware.rate_limit import limiter, LIMIT_BATCH
+from geo_review.auth.schemas import UserResponse
 
+from .deps import get_current_user
 from .helpers import get_file_extension
 from .schemas import APIBatchReviewRequest
 
@@ -27,7 +29,7 @@ router = APIRouter()
 
 @router.post("/api/v1/review/batch", tags=["批量审核"])
 @limiter.limit(LIMIT_BATCH)
-async def batch_review(body: APIBatchReviewRequest, request: Request):
+async def batch_review(body: APIBatchReviewRequest, request: Request, current_user: UserResponse = Depends(get_current_user)):
     """提交批量审核请求（JSON 方式）.
 
     支持：
@@ -58,7 +60,7 @@ async def batch_review(body: APIBatchReviewRequest, request: Request):
 
 
 @router.get("/api/v1/review/batch/{batch_id}/progress", tags=["批量审核"])
-async def get_batch_progress(batch_id: str, request: Request):
+async def get_batch_progress(batch_id: str, request: Request, current_user: UserResponse = Depends(get_current_user)):
     """查询批量审核进度."""
     batch_service = request.app.state._batch_service
     progress = await batch_service.get_progress(batch_id)
@@ -68,7 +70,7 @@ async def get_batch_progress(batch_id: str, request: Request):
 
 
 @router.get("/api/v1/review/batch/{batch_id}/result", tags=["批量审核"])
-async def get_batch_result(batch_id: str, request: Request):
+async def get_batch_result(batch_id: str, request: Request, current_user: UserResponse = Depends(get_current_user)):
     """获取批量审核完整结果."""
     batch_service = request.app.state._batch_service
     result = await batch_service.get_result(batch_id)
@@ -78,7 +80,7 @@ async def get_batch_result(batch_id: str, request: Request):
 
 
 @router.post("/api/v1/review/batch/{batch_id}/cancel", tags=["批量审核"])
-async def cancel_batch(batch_id: str, request: Request):
+async def cancel_batch(batch_id: str, request: Request, current_user: UserResponse = Depends(get_current_user)):
     """取消批量审核任务."""
     batch_service = request.app.state._batch_service
     success = await batch_service.cancel_batch(batch_id)
@@ -186,6 +188,7 @@ async def batch_review_upload(
     output_format: str = Form("json", description="输出格式"),
     crawl_official_urls: str = Form("false", description="是否爬取官网"),
     use_llm: str = Form("false", description="是否启用LLM语义审核"),
+    current_user: UserResponse = Depends(get_current_user),
 ):
     """批量文件上传方式提交审核.
 
@@ -279,6 +282,7 @@ async def batch_review_urls(
     output_format: str = Form("json", description="输出格式"),
     crawl_official_urls: str = Form("false", description="是否爬取官网"),
     use_llm: str = Form("true", description="是否启用LLM语义审核"),
+    current_user: UserResponse = Depends(get_current_user),
 ):
     """通过文档链接批量提交审核.
 

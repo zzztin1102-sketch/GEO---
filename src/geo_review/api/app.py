@@ -227,7 +227,7 @@ GEO 生文审核 Agent 的 RESTful API 接口。
     app.state._security = security
 
     # ================================================================
-    # 创建/同步默认管理员账户
+    # 创建默认管理员账户（仅首次启动创建，不覆盖已有密码）
     # ================================================================
     async def _create_default_admin():
         existing = await auth_service.get_by_username(config.auth.default_admin_username)
@@ -243,7 +243,7 @@ GEO 生文审核 Agent 的 RESTful API 接口。
                 logger.info(
                     f"[SECURITY] 默认管理员账户已创建: {config.auth.default_admin_username}"
                 )
-            except ValueError as e:
+            except ValueError:
                 # 密码强度不足，使用临时强密码创建
                 from geo_review.utils.security import generate_temp_password
                 temp_pwd = generate_temp_password(16)
@@ -262,22 +262,10 @@ GEO 生文审核 Agent 的 RESTful API 接口。
             except Exception:
                 pass
         else:
-            # 已存在则同步 config.yaml 中的密码
-            try:
-                await auth_service.set_password(
-                    username=config.auth.default_admin_username,
-                    new_password=config.auth.default_admin_password,
-                )
-                logger.info(
-                    f"[SECURITY] 默认管理员密码已从 config.yaml 同步: {config.auth.default_admin_username}"
-                )
-            except ValueError as e:
-                logger.error(
-                    f"[SECURITY] 默认管理员密码同步失败（密码强度不足）: {e}\n"
-                    f"         请修改 config.yaml 中的 default_admin_password 为符合强度要求的密码。"
-                )
-            except Exception as e:
-                logger.error(f"[SECURITY] 默认管理员密码同步失败: {e}")
+            # 管理员已存在 — 不覆盖密码，仅记录
+            logger.info(
+                f"[SECURITY] 管理员账户已存在: {config.auth.default_admin_username}（密码保持不变）"
+            )
 
     asyncio.run(_create_default_admin())
 

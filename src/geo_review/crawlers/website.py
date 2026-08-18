@@ -10,6 +10,7 @@ from urllib.parse import urljoin, urlparse
 
 from geo_review.config.models import CrawlerConfig
 from geo_review.models import CrawledDomain, CrawledPage
+from geo_review.utils.url_safety import validate_url, SSRFError
 
 logger = logging.getLogger(__name__)
 
@@ -357,6 +358,17 @@ class WebsiteCrawler:
                      为 None 且 use_dynamic=True 时自建一次性浏览器（兼容旧调用）。
         """
         crawled_at = beijing_now().isoformat()
+
+        # SSRF 防护：校验 URL 不指向内网/回环/元数据端点
+        try:
+            validate_url(url)
+        except SSRFError as exc:
+            return CrawledPage(
+                url=url,
+                crawled_at=crawled_at,
+                from_cache=False,
+                error=f"URL 安全校验失败: {exc}",
+            )
 
         # 优先尝试动态爬取
         if use_dynamic:

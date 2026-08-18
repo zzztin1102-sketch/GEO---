@@ -5,14 +5,16 @@ import base64
 import time
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse
 
 from geo_review.parsers.url_fetcher import URLDocumentFetcher
 from geo_review.result.builder import ReviewResultFormatter
 from geo_review.rules.loader import RuleLoader
 from geo_review.middleware.rate_limit import limiter, LIMIT_REVIEW
+from geo_review.auth.schemas import UserResponse
 
+from .deps import get_current_user
 from .helpers import format_response, get_file_extension
 from .schemas import APIReviewRequest
 
@@ -30,6 +32,7 @@ async def review_content(
     request: Request,
     output_format: str = "json",
     industry: Optional[str] = None,
+    current_user: UserResponse = Depends(get_current_user),
 ):
     """提交审核请求（JSON 方式）.
 
@@ -133,6 +136,7 @@ async def review_text_with_submission(
     rule_template: Optional[str] = Form(None, description="规则模板名称"),
     output_format: str = Form("json", description="输出格式"),
     crawl_official_urls: str = Form("false", description="是否爬取官网"),
+    current_user: UserResponse = Depends(get_current_user),
 ):
     """文本输入 + 提报表文件上传方式提交审核.
 
@@ -249,6 +253,7 @@ async def review_upload(
     output_format: str = Form("json", description="输出格式"),
     crawl_official_urls: str = Form("true", description="是否爬取官网"),
     industry: Optional[str] = Form(None, description="行业标识（finance/medical/technology）"),
+    current_user: UserResponse = Depends(get_current_user),
 ):
     """通过文件上传或文档链接方式提交审核.
 
@@ -388,6 +393,7 @@ async def review_upload(
 async def review_preview(
     body: APIReviewRequest,
     request: Request,
+    current_user: UserResponse = Depends(get_current_user),
 ):
     """提交审核并返回 HTML 格式的可视化报告."""
     agent = request.app.state._agent

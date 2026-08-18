@@ -18,6 +18,7 @@ from typing import Optional
 from urllib.parse import urlparse
 
 from geo_review.models import ParsedContent
+from geo_review.utils.url_safety import validate_url, SSRFError
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +158,12 @@ class URLDocumentFetcher:
         """
         if not url or not url.startswith(("http://", "https://")):
             raise ValueError("URL 格式无效，需以 http:// 或 https:// 开头")
+
+        # SSRF 防护：校验 URL 不指向内网/回环/元数据端点
+        try:
+            validate_url(url)
+        except SSRFError as exc:
+            raise ValueError(f"URL 安全校验失败: {exc}")
 
         is_feishu = _is_feishu_url(url)
         warnings = []

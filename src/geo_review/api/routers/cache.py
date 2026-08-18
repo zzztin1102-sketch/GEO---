@@ -2,7 +2,10 @@
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+
+from geo_review.auth.schemas import UserResponse
+from .deps import get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -10,7 +13,7 @@ router = APIRouter()
 
 
 @router.get("/api/v1/cache/stats", tags=["缓存管理"])
-async def get_cache_stats(request: Request):
+async def get_cache_stats(request: Request, current_user: UserResponse = Depends(get_current_user)):
     """获取资源缓存统计信息."""
     cache = getattr(request.app.state, "_resource_cache", None)
     if cache is None:
@@ -19,7 +22,7 @@ async def get_cache_stats(request: Request):
 
 
 @router.get("/api/v1/cache/companies", tags=["缓存管理"])
-async def list_cached_companies(request: Request):
+async def list_cached_companies(request: Request, current_user: UserResponse = Depends(get_current_user)):
     """列出所有缓存的公司."""
     cache = getattr(request.app.state, "_resource_cache", None)
     if cache is None:
@@ -29,7 +32,7 @@ async def list_cached_companies(request: Request):
 
 
 @router.get("/api/v1/cache/{company_name}", tags=["缓存管理"])
-async def get_company_cache(company_name: str, request: Request):
+async def get_company_cache(company_name: str, request: Request, current_user: UserResponse = Depends(get_current_user)):
     """查看指定公司的缓存详情."""
     cache = getattr(request.app.state, "_resource_cache", None)
     if cache is None:
@@ -41,7 +44,7 @@ async def get_company_cache(company_name: str, request: Request):
 
 
 @router.delete("/api/v1/cache/{company_name}", tags=["缓存管理"])
-async def clear_company_cache(company_name: str, request: Request):
+async def clear_company_cache(company_name: str, request: Request, current_user: UserResponse = Depends(get_current_user)):
     """清除指定公司的缓存."""
     cache = getattr(request.app.state, "_resource_cache", None)
     if cache is None:
@@ -53,7 +56,7 @@ async def clear_company_cache(company_name: str, request: Request):
 
 
 @router.delete("/api/v1/cache", tags=["缓存管理"])
-async def clear_all_cache(request: Request):
+async def clear_all_cache(request: Request, current_user: UserResponse = Depends(get_current_user)):
     """清除所有缓存."""
     cache = getattr(request.app.state, "_resource_cache", None)
     if cache is None:
@@ -63,7 +66,7 @@ async def clear_all_cache(request: Request):
 
 
 @router.post("/api/v1/cache/cleanup", tags=["缓存管理"])
-async def cleanup_expired_cache(request: Request):
+async def cleanup_expired_cache(request: Request, current_user: UserResponse = Depends(get_current_user)):
     """清除所有已过期的缓存数据."""
     cache = getattr(request.app.state, "_resource_cache", None)
     if cache is None:

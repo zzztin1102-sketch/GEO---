@@ -2,8 +2,11 @@
 
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+
+from geo_review.auth.schemas import UserResponse
+from .deps import get_current_user
 
 router = APIRouter()
 
@@ -24,6 +27,7 @@ async def list_history(
     end_date: Optional[str] = None,
     sort_by: str = "reviewed_at",
     sort_order: str = "desc",
+    current_user: UserResponse = Depends(get_current_user),
 ):
     """分页查询审核历史记录."""
     history_service = request.app.state._history_service
@@ -59,6 +63,7 @@ async def get_history_statistics(
     request: Request,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    current_user: UserResponse = Depends(get_current_user),
 ):
     """获取审核统计数据."""
     history_service = request.app.state._history_service
@@ -70,7 +75,7 @@ async def get_history_statistics(
 
 
 @router.get("/api/v1/history/batch/{batch_id}", tags=["历史记录"])
-async def get_history_by_batch(batch_id: str, request: Request):
+async def get_history_by_batch(batch_id: str, request: Request, current_user: UserResponse = Depends(get_current_user)):
     """获取批量任务的所有审核历史记录."""
     history_service = request.app.state._history_service
     try:
@@ -81,7 +86,7 @@ async def get_history_by_batch(batch_id: str, request: Request):
 
 
 @router.get("/api/v1/history/{review_id}", tags=["历史记录"])
-async def get_history_detail(review_id: str, request: Request):
+async def get_history_detail(review_id: str, request: Request, current_user: UserResponse = Depends(get_current_user)):
     """获取单条审核记录详情（含问题列表）."""
     history_service = request.app.state._history_service
     try:
@@ -96,7 +101,7 @@ async def get_history_detail(review_id: str, request: Request):
 
 
 @router.delete("/api/v1/history/{review_id}", tags=["历史记录"])
-async def delete_history(review_id: str, request: Request):
+async def delete_history(review_id: str, request: Request, current_user: UserResponse = Depends(get_current_user)):
     """删除单条审核记录（软删除）."""
     history_service = request.app.state._history_service
     try:
@@ -111,7 +116,7 @@ async def delete_history(review_id: str, request: Request):
 
 
 @router.post("/api/v1/history/batch-delete", tags=["历史记录"])
-async def batch_delete_history(review_ids: List[str], request: Request):
+async def batch_delete_history(review_ids: List[str], request: Request, current_user: UserResponse = Depends(get_current_user)):
     """批量删除审核记录（软删除）."""
     history_service = request.app.state._history_service
     try:
@@ -134,7 +139,7 @@ class HumanReviewRequest(BaseModel):
 
 
 @router.put("/api/v1/history/{review_id}/human-review", tags=["历史记录"])
-async def update_human_review(review_id: str, body: HumanReviewRequest, request: Request):
+async def update_human_review(review_id: str, body: HumanReviewRequest, request: Request, current_user: UserResponse = Depends(get_current_user)):
     """保存人工复核结果.
 
     人工复核闭环：AI审核 → 人工确认 → 接受/驳回/误报标记 → 记录结果
