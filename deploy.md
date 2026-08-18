@@ -88,7 +88,7 @@ tar -czf geo-review.tar.gz \
   "GEO生文审核 - 副本"
 
 # 上传到服务器（替换为你的服务器 IP）
-scp geo-review.tar.gz root@你的服务器IP:/root/
+scp geo-review.tar.gz root@你的服务器公网IP:/root/
 
 # 上传完成后删除本地压缩包（含项目源码，避免留存泄露）
 del geo-review.tar.gz
@@ -153,7 +153,7 @@ docker compose logs -f
 http://你的服务器公网IP:8000
 ```
 
-例如：`http://47.92.123.45:8000`
+例如：`http://你的服务器公网IP:8000`
 
 用户即可访问审核系统，无需任何本地文件。
 

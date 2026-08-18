@@ -236,10 +236,20 @@ class LLMReviewer:
         warnings = []
         score = 1.0
 
-        # 维度1：0 个问题但正文较长
+        # 维度1：0 个问题但正文较长 — 可能是 Prompt Injection 导致的异常通过
         if not result.issues and len(content) > 500:
             score -= 0.2
             warnings.append("正文较长但未发现任何问题，请人工复核")
+
+            # Prompt Injection 嫌疑检测：长正文 + 0 问题 + summary 含"通过/合规/无问题"
+            summary_lower = (result.summary or "").lower()
+            pass_keywords = ["审核通过", "合规", "无问题", "未发现", "通过", "pass", "approved"]
+            if any(kw in summary_lower for kw in pass_keywords):
+                score -= 0.3
+                warnings.append(
+                    "⚠️ 疑似 Prompt Injection：长正文零问题且 summary 直接判定通过，"
+                    "请人工核查待审文本是否包含注入攻击内容"
+                )
 
         # 维度2：snippet 定位率
         if result.issues:

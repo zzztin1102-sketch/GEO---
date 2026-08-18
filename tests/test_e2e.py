@@ -240,7 +240,7 @@ class TestE2EReviewFlow:
         ])
 
         agent = ReviewAgent(
-            llm_config=LLMProviderConfig(api_key="mock-key"),
+            llm_config=LLMProviderConfig(api_key="fake-key-for-testing"),
             rule_loader=RuleLoader(),
             fact_check_enabled=False,  # 关闭联网核查
         )
@@ -266,7 +266,7 @@ class TestE2EReviewFlow:
     def test_review_returns_error_on_empty_content(self):
         """空正文应返回 INVALID_REQUEST 错误响应."""
         agent = ReviewAgent(
-            llm_config=LLMProviderConfig(api_key="mock-key"),
+            llm_config=LLMProviderConfig(api_key="fake-key-for-testing"),
             rule_loader=RuleLoader(),
             fact_check_enabled=False,
         )
@@ -325,7 +325,7 @@ class TestE2ECacheReuse:
         ])
 
         agent = ReviewAgent(
-            llm_config=LLMProviderConfig(api_key="mock-key"),
+            llm_config=LLMProviderConfig(api_key="fake-key-for-testing"),
             rule_loader=RuleLoader(),
             fact_check_enabled=False,
             resource_cache=cache,
@@ -519,7 +519,7 @@ class TestE2EErrorHandling:
         }
 
         agent = ReviewAgent(
-            llm_config=LLMProviderConfig(api_key="mock-key"),
+            llm_config=LLMProviderConfig(api_key="fake-key-for-testing"),
             rule_loader=RuleLoader(),
             fact_check_enabled=False,
         )
@@ -571,7 +571,7 @@ class TestE2EErrorHandling:
         ])
 
         agent = ReviewAgent(
-            llm_config=LLMProviderConfig(api_key="mock-key"),
+            llm_config=LLMProviderConfig(api_key="fake-key-for-testing"),
             rule_loader=RuleLoader(),
             fact_check_enabled=False,
         )

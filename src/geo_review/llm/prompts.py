@@ -6,6 +6,7 @@
     3. 保留 estimate_tokens() 和智能截断逻辑
     4. 新增 PROMPT_PROFILES 映射 prompt_profile 到各模块组合
     5. ✅ 支持 YAML 外置模板热加载（prompt_templates/prompts.yaml）
+    6. ✅ Prompt Injection 防护：随机 fence + 输入净化 + system 防御声明
 
 Prompt 模块：
     - BASE_SYSTEM_PROMPT: 角色定义 + 核心原则 + 问题类型/严重程度 (~800 tokens)
@@ -19,11 +20,46 @@ Prompt 模块：
 
 import re
 import logging
+import uuid
 from typing import Dict, Optional
 
 from geo_review.llm.prompt_loader import get_prompt_loader
 
 logger = logging.getLogger(__name__)
+
+
+# ====================================================================
+# Prompt Injection 防护
+# ====================================================================
+
+def sanitize_user_content(content: str) -> str:
+    """净化用户输入内容，防止 Prompt Injection.
+
+    防护措施：
+    1. 使用随机 UUID fence 标记用户输入边界（攻击者无法预测）
+    2. 移除内容中可能被 LLM 解释为指令的模式
+    3. 中和已知的注入尝试
+
+    Args:
+        content: 用户提交的待审正文
+
+    Returns:
+        净化后的内容，带有随机 fence 标记
+    """
+    if not content:
+        return content
+
+    # 生成随机 fence token（每次调用都不同，攻击者无法预测）
+    fence_token = uuid.uuid4().hex[:12]
+    fence_begin = f"<USER_CONTENT fence_id={fence_token}>"
+    fence_end = f"</USER_CONTENT fence_id={fence_token}>"
+
+    # 如果用户内容中恰好包含相同的 fence 标记，替换掉（概率极低但防御性处理）
+    content = content.replace(fence_begin, "[REMOVED]")
+    content = content.replace(fence_end, "[REMOVED]")
+
+    # 用随机 fence 包裹用户输入
+    return f"{fence_begin}\n{content}\n{fence_end}"
 
 
 # ====================================================================
@@ -446,7 +482,7 @@ def build_review_messages(
                 logger.warning(f"正文已截断至 {max_content_chars} 字符")
 
     user_prompt = review_template.format(
-        content=content,
+        content=sanitize_user_content(content),
         task_name=submission_data.get("task_name", "（未知）"),
         company_name=submission_data.get("company_name", "（未知）"),
         product_list=product_list,

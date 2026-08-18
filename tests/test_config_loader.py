@@ -94,7 +94,7 @@ class TestConfigLoad:
         否则 _SENSITIVE_ENV_MAP 会用 .env 中的值覆盖测试值。
         """
         # 使用真实环境变量名，monkeypatch 会覆盖 .env 中已加载的值
-        monkeypatch.setenv("LLM_API_KEY", "sk-test-key")
+        monkeypatch.setenv("LLM_API_KEY", "fake-key-for-testing")
         monkeypatch.setenv("AUTH_SECRET_KEY", "test-secret-key-with-enough-length-for-testing")
         monkeypatch.setenv("AUTH_ADMIN_PASSWORD", "TestPassword@12345")
 
@@ -119,7 +119,7 @@ class TestConfigLoad:
         from geo_review.config import load_config
         config = load_config(str(config_file))
 
-        assert config.llm.api_key == "sk-test-key"
+        assert config.llm.api_key == "fake-key-for-testing"
         assert config.llm.model == "test-model"
         assert config.auth.secret_key == "test-secret-key-with-enough-length-for-testing"
         assert config.auth.default_admin_password == "TestPassword@12345"
@@ -127,7 +127,7 @@ class TestConfigLoad:
 
     def test_load_config_rate_limit(self, tmp_path, monkeypatch):
         """加载限流配置."""
-        monkeypatch.setenv("LLM_API_KEY", "sk-test")
+        monkeypatch.setenv("LLM_API_KEY", "fake-key")
         monkeypatch.setenv("AUTH_SECRET_KEY", "x" * 40)
         monkeypatch.setenv("AUTH_ADMIN_PASSWORD", "TestPwd@12345")
 
