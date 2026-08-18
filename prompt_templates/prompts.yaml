@@ -107,6 +107,60 @@ modules:
     **6. 联系方式泄露**
     正文中明文出现手机号、微信号、邮箱等联系方式。
 
+  grammar_quality: |
+    ## 语句质量专项审核（语病识别）
+
+    逐句审查正文，识别以下 8 类语病。注意：营销文案的口语化表达不属于语病，
+    仅标记影响理解或降低专业度的问题。
+
+    ### 语病类型与识别要点
+
+    **1. 成分残缺**（type=semantic_risk, severity=major）
+    - 主语残缺：无主语的句子滥用，如"通过该系统，实现了自动化"（缺主语"我们"）
+    - 宾语残缺：动词后缺宾语，如"我们致力于提供"（缺宾语"服务"）
+    - 识别方法：检查每句话是否"谁做了什么"，主谓宾是否完整
+
+    **2. 搭配不当**（type=semantic_risk, severity=major）
+    - 主谓搭配：如"销量实现了增长的目标"（应为"销量实现了增长"）
+    - 动宾搭配：如"提升用户体验的质量"（应为"提升用户体验"或"提高质量"）
+    - 定中搭配：如"广泛的关注度"（应为"广泛的关注"）
+    - 识别方法：提取主谓宾三元组，检查是否合乎习惯
+
+    **3. 语序不当**（type=semantic_risk, severity=minor）
+    - 定语语序：如"我们是一家位于北京的专业金融科技公司"（"专业的"应前置）
+    - 状语语序：如"我们已经在行业内率先推出了该产品"（语序合理则不报）
+    - 识别方法：检查修饰语位置是否符合中文习惯
+
+    **4. 指代不明**（type=semantic_risk, severity=major）
+    - 代词无指代对象：如"该公司致力于此"（"该公司"未在前文出现）
+    - 指代歧义：如"A公司收购了B公司，它是一家上市公司"（"它"指 A 还是 B）
+    - 识别方法：检查每个代词/指示代词是否有明确指代对象
+
+    **5. 逻辑矛盾**（type=semantic_risk, severity=major）
+    - 前后表述冲突：如"成立于2015年，至今已有10年历史"（2015 年至今不足 10 年）
+    - 因果不当：如"因为我们技术领先，所以价格最低"（因果不成立）
+    - 识别方法：通读全文，检查时间、数字、因果是否自洽
+
+    **6. 重复累赘**（type=semantic_risk, severity=minor）
+    - 语义重复：如"免费赠送""共同协作""首先首创"
+    - 修饰冗余：如"非常十分优秀""最最顶尖"
+    - 识别方法：检查是否有语义重叠的词语连用
+
+    **7. 句式杂糅**（type=semantic_risk, severity=major）
+    - 两种句式混合：如"其原因是由于市场需求旺盛"（"原因是"和"由于"杂糅）
+    - 识别方法：检查一句话是否套用了两种结构
+
+    **8. 表达歧义**（type=semantic_risk, severity=minor）
+    - 断句歧义：如"我们发现问题并解决了"（可断为"发现/问题并解决"或"发现问题/并解决"）
+    - 量词歧义：如"三个学校的学生"（三所学校还是一个学校的三个学生）
+    - 识别方法：检查是否有多种合理解读
+
+    ### 审核要求
+    - 对每个疑似语病，snippet 必须提取完整句子
+    - reason 说明属于哪类语病 + 为什么有问题
+    - suggestion 给出修改后的正确表述
+    - 避免误报：营销性夸张表述（如"领先行业"）不属于语病，归入 exaggeration
+
   industry_finance: |
     ## 金融行业专项规则
     ### 金融行业禁用词
@@ -137,6 +191,18 @@ modules:
     - 不得含有功效的断言或保证
 
   output_format: |
+    ## 审核流程（自检要求）
+
+    在输出最终结果前，请按以下步骤自检，避免误报和漏报：
+    1. **事实核验**：对正文中的核心事实声明（数据、排名、资质、历史事实），
+       核对提报表/官网信息是否支持。不一致或无依据才报为问题。
+    2. **语病筛查**：逐句检查成分残缺、搭配不当、指代不明、逻辑矛盾等 8 类语病。
+       营销性口语化表达不报。
+    3. **合规判定**：识别绝对化、夸大、对比性表述。语境合理的用词不报。
+    4. **置信度自评**：对每个问题给出 confidence（0-1）。
+       低于 0.6 的问题不要输出，避免误报。
+    5. **去重合并**：同一语句的多个问题合并为一条，reason 中分点说明。
+
     ## 输出格式
     输出 JSON，格式如下:
     {
@@ -160,6 +226,7 @@ modules:
     - reason 说明为什么有问题、会给用户带来什么误导
     - suggestion 给出可操作的修改方向
     - 语境合理的用词不应判定为违规
+    - confidence 低于 0.6 的问题不要输出
     - 没有发现问题时 issues 为空数组，summary 说明审核通过
     - 只输出 JSON，不要额外解释或 Markdown 格式
 
@@ -173,33 +240,39 @@ profiles:
     - base_system
     - geo_specific
     - legal_rules
+    - grammar_quality
     - output_format
   finance:
     - base_system
     - geo_specific
     - legal_rules
+    - grammar_quality
     - industry_finance
     - output_format
   medical:
     - base_system
     - geo_specific
     - legal_rules
+    - grammar_quality
     - industry_medical
     - output_format
   enterprise:
     - base_system
     - geo_specific
     - legal_rules
+    - grammar_quality
     - output_format
   news:
     - base_system
     - geo_specific
     - legal_rules
+    - grammar_quality
     - output_format
   technology:
     - base_system
     - geo_specific
     - legal_rules
+    - grammar_quality
     - output_format
 
 
