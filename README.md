@@ -117,8 +117,8 @@ TaskPlanner（任务规划）
 ### 4. LLM 语义审核
 
 - 基于大语言模型，模拟 6 年经验的 GEO 审核专家
-- 7 大问题类型：不一致、无依据宣称、夸大宣传、贬低竞品、语义风险、语气不当
-- 4 级严重程度：CRITICAL / HIGH / MEDIUM / LOW
+- 9 大问题类型：与提报表不一致、与官网不一致、无依据宣称、夸大宣传、贬低竞品、语义风险、语气不当、GEO 可引用性问题、品牌实体一致性问题
+- 4 级严重程度：CRITICAL（法律禁语/核心信息不符）/ MAJOR（无依据对比/承诺）/ MINOR（数据缺来源等）/ INFO（合规可优化）
 - 每个问题包含：原文片段、问题原因、修改建议、置信度
 
 ### 5. GEO 可引用性审核
@@ -274,18 +274,49 @@ cd GEO生文审核
 pip install -r requirements.txt
 ```
 
-### 3. 配置 API Key
+安装 Playwright 浏览器内核（官网爬取功能依赖，Docker 部署已内置此步骤）：
 
-编辑 `config.yaml`，填入你的 LLM API Key（支持任意 OpenAI 兼容 API）：
-
-```yaml
-llm:
-  api_key: your-api-key
-  base_url: https://api.openai.com/v1    # OpenAI 默认；切换通义千问改为 https://dashscope.aliyuncs.com/compatible-mode/v1
-  model: gpt-4o-mini                     # OpenAI 默认；切换通义千问改为 qwen-plus
+```bash
+python -m playwright install chromium
 ```
 
-> 也可通过环境变量 `LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL` 配置，优先级高于 config.yaml。
+### 3. 配置环境变量（推荐 .env 方式）
+
+复制 `.env.example` 为 `.env` 并填入配置（`.env` 已被 .gitignore 排除，不会泄露到代码仓库）：
+
+```bash
+cp .env.example .env
+```
+
+最小配置只需 LLM API Key（支持任意 OpenAI 兼容 API）：
+
+```env
+# 必填：LLM API Key
+LLM_API_KEY=your-api-key
+
+# 可选：切换模型提供商（默认 OpenAI）
+# LLM_BASE_URL=https://api.openai.com/v1
+# LLM_MODEL=gpt-4o-mini
+# 通义千问:  https://dashscope.aliyuncs.com/compatible-mode/v1 + qwen-plus
+# DeepSeek:  https://api.deepseek.com/v1 + deepseek-chat
+# 智谱 GLM:  https://open.bigmodel.cn/api/paas/v4 + glm-4-flash
+
+# 推荐：JWT 认证密钥（生成命令见下）
+AUTH_SECRET_KEY=<运行 python scripts/generate_secret_key.py 生成>
+
+# 推荐：管理员密码（大小写字母+数字+特殊字符，至少 12 位）
+AUTH_ADMIN_PASSWORD=YourStrongPassword@123
+```
+
+生成 JWT 密钥：
+
+```bash
+python scripts/generate_secret_key.py
+```
+
+> 环境变量优先级高于 `config.yaml`。如需修改其余参数（爬虫、规则引擎、限流等）可编辑 `config.yaml`，但**切勿将真实 API Key 写入 config.yaml 后提交到 Git**。
+>
+> 认证说明：系统内置 JWT 认证，服务启动后使用 `AUTH_ADMIN_PASSWORD` 对应的管理员账号登录，业务用户通过 `/api/v1/auth/register` 注册。生产部署务必完成认证配置，详见 [deploy.md](deploy.md) 的"生产安全清单"。
 
 ### 4. 启动服务
 
@@ -300,6 +331,12 @@ python run.py
 - **Web 界面**：http://127.0.0.1:8000
 - **API 文档**：http://127.0.0.1:8000/docs
 - **健康检查**：http://127.0.0.1:8000/api/v1/health
+
+### 运行测试（可选）
+
+```bash
+pytest
+```
 
 ### Docker 部署（推荐）
 
@@ -320,13 +357,26 @@ GEO生文审核/
 ├── requirements.txt            # Python 依赖
 ├── Dockerfile                  # Docker 镜像构建
 ├── docker-compose.yml          # Docker 编排
+├── pyproject.toml              # pytest 配置
 ├── deploy.md                   # 云服务器部署指南
 ├── static/                     # 前端静态文件
 │   ├── index.html              # SPA 入口
 │   ├── css/style.css           # 样式表（蓝色渐变主题）
 │   └── js/app.js               # 前端核心逻辑（路由、API、组件）
 ├── rule_templates/             # 行业规则模板
+│   ├── general.yaml            # 通用规则
 │   └── finance.yaml            # 金融行业规则
+├── prompt_templates/
+│   └── prompts.yaml            # Prompt 模块配置（热加载，按 profile 组合）
+├── scripts/
+│   └── generate_secret_key.py  # JWT 密钥生成工具
+├── tests/                      # 测试（pytest）
+│   ├── test_rules_engine.py    # 规则引擎测试
+│   ├── test_llm_client.py      # LLM 客户端测试
+│   ├── test_config_loader.py   # 配置加载测试
+│   ├── test_history_search.py  # 历史检索测试
+│   ├── test_resource_cache.py  # 资源缓存测试
+│   └── test_e2e.py             # 端到端测试
 └── src/geo_review/             # 后端核心模块
     ├── agent/                  # 审核 Agent
     │   ├── reviewer.py         # ReviewAgent 总调度
@@ -334,17 +384,26 @@ GEO生文审核/
     │   ├── batch.py            # 批量审核
     │   └── models.py           # Agent 数据模型
     ├── llm/                    # LLM 模块
-    │   ├── client.py           # LLM 客户端（OpenAI 兼容）
+    │   ├── client.py           # LLM 客户端（OpenAI 兼容，缓存+降级）
     │   ├── reviewer.py         # LLM 语义审核
     │   ├── prompts.py          # 动态 Prompt 管理
+    │   ├── prompt_loader.py    # Prompt 热加载
     │   └── models.py           # LLM 数据模型
     ├── rules/                  # 规则引擎
     │   ├── engine.py           # 规则匹配引擎
     │   ├── loader.py           # 规则加载器
     │   ├── issues.py           # 问题类型定义
     │   └── models.py           # 规则数据模型
+    ├── tools/                  # 联网核查工具
+    │   ├── web_search.py       # 多引擎搜索（360/搜狗/Bing/DuckDuckGo）
+    │   ├── fact_checker.py     # 事实核查（证据链模型）
+    │   └── evidence_store.py   # 结构化证据提取
     ├── api/                    # API 层
-    │   └── app.py              # FastAPI 应用（路由、中间件）
+    │   ├── app.py              # FastAPI 应用（中间件、静态资源）
+    │   └── routers/            # 路由（review/batch/history/rules/
+    │                           #       auth/workflow/cache/system）
+    ├── middleware/
+    │   └── rate_limit.py       # 接口限流
     ├── auth/                   # 认证模块
     │   ├── service.py          # 用户认证服务
     │   ├── security.py         # JWT 安全
@@ -393,22 +452,69 @@ GEO生文审核/
 
 ### 核心接口
 
+#### 审核
+
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/v1/review/text` | 文本审核 |
-| POST | `/api/v1/review/upload` | 文件上传审核 |
-| POST | `/api/v1/review/url` | URL 链接审核 |
-| POST | `/api/v1/batch/review` | 批量审核 |
-| GET | `/api/v1/history` | 审核历史列表 |
-| GET | `/api/v1/history/{id}` | 审核详情 |
+| POST | `/api/v1/review` | JSON 方式提交审核 |
+| POST | `/api/v1/review/text-with-submission` | 文本 + 提报表组合提交 |
+| POST | `/api/v1/review/upload` | 文件上传审核（PDF/DOCX/XLSX 等） |
+| POST | `/api/v1/review/preview` | 审核预览（不落库） |
+| POST | `/api/v1/review/batch` | 批量审核（JSON） |
+| POST | `/api/v1/review/batch/upload` | 批量审核（文件上传） |
+| POST | `/api/v1/review/batch/urls` | 批量审核（URL 列表） |
+| GET | `/api/v1/review/batch/{batch_id}/progress` | 批量审核进度 |
+| GET | `/api/v1/review/batch/{batch_id}/result` | 批量审核结果 |
+| POST | `/api/v1/review/batch/{batch_id}/cancel` | 取消批量任务 |
+
+#### 认证
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/v1/auth/register` | 用户注册 |
+| POST | `/api/v1/auth/login` | 登录（获取 JWT） |
+| GET | `/api/v1/auth/me` | 当前用户信息 |
+| PUT | `/api/v1/auth/me` | 更新用户信息 |
+| POST | `/api/v1/auth/change-password` | 修改密码 |
+
+#### 历史记录与人工复核
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/v1/history` | 审核历史列表（支持筛选） |
 | GET | `/api/v1/history/statistics` | 审核统计 |
+| GET | `/api/v1/history/{review_id}` | 审核详情 |
+| DELETE | `/api/v1/history/{review_id}` | 删除审核记录 |
+| POST | `/api/v1/history/batch-delete` | 批量删除 |
+| PUT | `/api/v1/history/{review_id}/human-review` | 人工复核（接受/误报/驳回） |
+| GET | `/api/v1/workflow/{review_id}` | 审核流程状态 |
+| POST | `/api/v1/workflow/{review_id}/transition` | 流程状态流转 |
+| POST/GET | `/api/v1/workflow/{review_id}/comments` | 流程评论（写/读） |
+
+#### 规则与行业知识库
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
 | GET | `/api/v1/rules/templates` | 规则模板列表 |
+| GET | `/api/v1/rules/templates/{name}` | 规则模板详情 |
+| GET | `/api/v1/rules` | 自定义规则列表 |
+| POST | `/api/v1/rules/add` | 新增规则 |
+| POST | `/api/v1/rules/validate` | 校验规则 YAML |
+| POST | `/api/v1/rules/test` | 规则试跑（输入文本返回命中） |
+| DELETE | `/api/v1/rules/{rule_id}` | 删除规则 |
+| GET | `/api/v1/industry/kb/{industry}` | 行业知识库 |
+
+#### 系统、监控与缓存
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
 | GET | `/api/v1/health` | 健康检查 |
-| GET | `/api/v1/monitoring` | 系统监控 |
+| GET | `/api/v1/metrics` | 系统监控指标 |
+| GET | `/api/v1/metrics/llm` | LLM 调用统计 |
+| GET | `/api/v1/config` | 运行时配置 |
 | GET | `/api/v1/cache/stats` | 缓存统计 |
 | GET | `/api/v1/cache/companies` | 缓存公司列表 |
-| GET | `/api/v1/cache/{company_name}` | 查看公司缓存详情 |
-| DELETE | `/api/v1/cache/{company_name}` | 清除指定公司缓存 |
+| GET/DELETE | `/api/v1/cache/{company_name}` | 查看/清除公司缓存 |
 | DELETE | `/api/v1/cache` | 清除全部缓存 |
 | POST | `/api/v1/cache/cleanup` | 清除过期缓存 |
 
@@ -475,16 +581,17 @@ GEO生文审核/
 
 1. 购买阿里云 ECS（2核4G，Ubuntu 22.04）
 2. 安装 Docker
-3. 上传项目文件
+3. 上传项目文件（注意排除 `.env`、`*.db` 等敏感文件）
 4. `docker compose up -d --build`
 5. 配置安全组开放 8000 端口
 6. 访问 `http://服务器IP:8000`
+7. **完成 deploy.md 的"生产安全清单"**（认证密钥、管理员密码、HTTPS）
 
 ---
 
 ## 许可证
 
-MIT License
+未指定（如需开源发布，请添加 LICENSE 文件并更新此声明）
 
 ---
 

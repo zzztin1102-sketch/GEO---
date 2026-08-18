@@ -274,7 +274,7 @@ class BatchReviewService:
                 task.current_item = item_id
                 task.active_items.add(item_id)
 
-            await self._notify_progress(batch_id, self._tasks[batch_id])
+            await self._notify_progress(batch_id, task)
 
             for attempt in range(self._item_max_retries + 1):
                 attempt_start = time.time()
@@ -314,7 +314,7 @@ class BatchReviewService:
                             if attempt > 0:
                                 task.retry_count += attempt
 
-                    await self._notify_progress(batch_id, self._tasks[batch_id])
+                    await self._notify_progress(batch_id, task)
                     return
 
                 except Exception as e:
@@ -323,7 +323,7 @@ class BatchReviewService:
 
                     is_retryable = any(k in error_msg for k in [
                         "rate limit", "timeout", "temporary", "503", "502",
-                        "connection", "network", "llm",
+                        "connection", "network",
                     ])
 
                     if attempt < self._item_max_retries and is_retryable:
@@ -350,7 +350,7 @@ class BatchReviewService:
                     task.results.append(result)
                     task.active_items.discard(item_id)
 
-            await self._notify_progress(batch_id, self._tasks[batch_id])
+            await self._notify_progress(batch_id, task)
 
     def _build_review_request(self, item: Dict[str, Any], batch_request: BatchReviewRequest) -> Dict[str, Any]:
         """为单个项构建审核请求."""

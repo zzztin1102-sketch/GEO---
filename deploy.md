@@ -70,13 +70,31 @@ docker --version
 在你的**本地电脑**终端执行：
 
 ```bash
-# 将项目打包
+# 将项目打包（--exclude 排除敏感文件和本地数据，切勿省略）
+# 排除项说明：
+#   .env / *.env        — 真实 API Key、JWT 密钥、管理员密码（服务器上单独配置）
+#   *.db                — 本地审核历史数据（含企业文案，不应上传）
+#   .workbuddy          — 本地会话记忆
+#   __pycache__ 等      — 编译缓存，无需上传
 cd "c:\Users\zhaoting1\Desktop"
-tar -czf geo-review.tar.gz "GEO生文审核 - 副本"
+tar -czf geo-review.tar.gz \
+  --exclude=".env" \
+  --exclude="*.env" \
+  --exclude="*.db" \
+  --exclude=".workbuddy" \
+  --exclude="__pycache__" \
+  --exclude="*.pyc" \
+  --exclude=".pytest_cache" \
+  "GEO生文审核 - 副本"
 
 # 上传到服务器（替换为你的服务器 IP）
 scp geo-review.tar.gz root@你的服务器IP:/root/
+
+# 上传完成后删除本地压缩包（含项目源码，避免留存泄露）
+del geo-review.tar.gz
 ```
+
+> ⚠️ 注意：`tar` 不会读取 `.gitignore`，如不使用上述 `--exclude` 参数，`.env`（真实 LLM API Key、JWT 密钥）和 `review_history.db`（真实审核数据）会被一并上传到服务器。
 
 ### 方法 B：使用宝塔面板（图形化）
 
@@ -141,6 +159,44 @@ http://你的服务器公网IP:8000
 
 ---
 
+## 第八步：生产安全清单（重要，公网开放前必读）
+
+> ⚠️ 安全组开放 `0.0.0.0/0` 意味着**任何人都能访问你的服务**。本系统涉及 LLM API 费用消耗和审核数据存储，公网部署前请逐项确认：
+
+### ✅ 部署前检查表
+
+| # | 检查项 | 说明 | 未做的后果 |
+|---|--------|------|-----------|
+| 1 | **配置认证密钥** | 在服务器上创建 `.env`，设置 `AUTH_SECRET_KEY`（运行 `python scripts/generate_secret_key.py` 生成 64+ 字符随机密钥） | JWT 可被伪造，任何人可冒充管理员 |
+| 2 | **设置强管理员密码** | `.env` 中 `AUTH_ADMIN_PASSWORD` 需包含大小写字母、数字、特殊字符，至少 12 位，且勿与示例相同 | 弱密码可被暴力破解 |
+| 3 | **注册并要求用户登录** | 首次启动用管理员账号登录，业务用户通过 `/api/v1/auth/register` 注册；前端登录后才可调用审核接口 | 任何人可调用 `POST /api/v1/review` 消耗你的 LLM API 费用；`DELETE /api/v1/cache` 清空缓存；`GET /api/v1/history` 拉取全部审核记录 |
+| 4 | **配置 API Key** | LLM API Key 只写入服务器上的 `.env` 或 `config.yaml`，不要打包上传、不要提交到 Git | API Key 泄露后被盗刷 |
+| 5 | **启用 HTTPS** | 见下方"绑定域名 + HTTPS"章节 | 登录密码、审核数据明文传输，可被中间人截获 |
+| 6 | **确认限流生效** | 检查 `config.yaml` 中 rate_limit 配置未被关闭 | 接口被恶意高频调用，服务崩溃或费用激增 |
+| 7 | **安全组最小开放** | 8000 端口可临时全网开放用于验证，验证后建议收敛为办公网 IP 段 | 服务暴露面过大 |
+
+### 服务器操作建议
+
+```bash
+# 1. 在服务器上创建 .env（不要在本地打包上传）
+cd "GEO生文审核 - 副本"
+cp .env.example .env
+
+# 2. 生成 JWT 密钥并写入 .env
+python scripts/generate_secret_key.py
+# 将输出的密钥填入 .env 的 AUTH_SECRET_KEY
+
+# 3. 修改管理员密码
+# 编辑 .env，设置 AUTH_ADMIN_PASSWORD 为你的强密码
+
+# 4. 重启服务生效
+docker compose restart
+```
+
+> 💡 建议：日常运维避免直接使用 root 账户操作服务器，可创建普通用户并加入 sudo 组；执行 `curl ... | bash` 这类管道脚本前，先下载脚本审阅内容再执行。
+
+---
+
 ## 常用运维命令
 
 ```bash
@@ -166,6 +222,8 @@ docker compose restart
 ---
 
 ## 可选：绑定域名 + HTTPS
+
+> ⚠️ **重要提醒**：本系统处理企业营销文案、提报表等商业敏感数据，审核记录含企业信息。未配置 HTTPS 时，所有数据（包括登录密码）均以明文在公网传输，仅适合**短期演示**。正式使用必须完成本节配置。
 
 ### 1. 购买域名
 在阿里云购买域名（约 30-80元/年）

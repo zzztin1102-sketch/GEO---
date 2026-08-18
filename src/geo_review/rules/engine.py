@@ -1010,9 +1010,14 @@ class RuleEngine:
                     match_text, match_start, match_end = matches[0]
                     snippet = self._extract_sentence_context(content, match_start, match_end)
                     counter[0] += 1
+                    category_key = rule.category.lower().replace(" ", "_")
+                    try:
+                        issue_type = IssueType(category_key)
+                    except ValueError:
+                        issue_type = IssueType.SEMANTIC_RISK
                     issues.append(Issue(
                         id=Issue.make_id(counter[0]),
-                        type=IssueType(rule.category.lower().replace(" ", "_")) if rule.category.lower().replace(" ", "_") in [t.value for t in IssueType] else IssueType.SEMANTIC_RISK,
+                        type=issue_type,
                         severity=IssueSeverity(rule.severity),
                         title=f"【{self.industry_kb.name}】{rule.name}",
                         evidence=IssueEvidence(

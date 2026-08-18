@@ -166,6 +166,15 @@ class WebSearchTool:
             params = {"q": query}
             resp = self.session.get(self._360_URL, params=params, timeout=self.config.timeout)
             resp.raise_for_status()
+
+            # 验证响应是否为有效搜索结果页（非验证码/错误页）
+            if not any(marker in resp.text for marker in (
+                'class="result"', 'class="res-list"', 'class="title"',
+                'search-result', 'so-result',
+            )):
+                logger.debug("360搜索返回非搜索结果页（可能是验证码或错误页），降级到下一个引擎")
+                return []
+
             return self._parse_360_html(resp.text, max_results)
         except Exception as e:
             logger.debug(f"360搜索失败: {e}")

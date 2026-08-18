@@ -17,7 +17,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -367,6 +367,9 @@ GEO 生文审核 Agent 的 RESTful API 接口。
 
         @app.get("/{full_path:path}", response_class=HTMLResponse, include_in_schema=False)
         async def catch_all(full_path: str):
+            # 排除 API 路径，避免对不存在的 API 返回 HTML 而非 404 JSON
+            if full_path.startswith("api/"):
+                raise HTTPException(status_code=404, detail="Not found")
             with open(os.path.join(static_dir, "index.html"), "r", encoding="utf-8") as f:
                 return f.read()
     else:

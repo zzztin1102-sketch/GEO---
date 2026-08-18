@@ -289,15 +289,14 @@ class LLMClient:
                     self._cache.set(messages, result)
 
                 logger.info(f"降级到 {self.config.fallback_model} 成功")
+                # 恢复原模型配置，避免后续调用永久使用降级模型
+                self.config.model = original_model
                 return result
 
             except Exception as fallback_exc:
                 logger.error(f"降级模型 {self.config.fallback_model} 也失败: {fallback_exc}")
                 # 恢复原模型配置
                 self.config.model = original_model
-            finally:
-                # 确保恢复
-                pass
 
         self._stats["failed_calls"] += 1
         # ✅ 熔断器：记录失败
